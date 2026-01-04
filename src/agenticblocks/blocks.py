@@ -1,3 +1,13 @@
+class IO:
+    """IO block - simple pass-through to the model."""
+
+    def __init__(self, model):
+        self.model = model
+
+    def __call__(self, prompt: str, **kwargs) -> dict:
+        return self.model(prompt, **kwargs)
+
+
 class ChainOfThought:
     """Chain of Thought block - prompts the model to think step by step."""
 

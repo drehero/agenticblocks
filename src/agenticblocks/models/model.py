@@ -12,6 +12,23 @@ from agenticblocks.models.utils import set_cache_control
 
 
 class Model:
+    """A wrapper for OpenAI-compatible API models.
+
+    Takes text as input and outputs text. Handles conversation history,
+    cost tracking, and cache control.
+
+    Args:
+        model_name: The name/ID of the model to use.
+        model_kwargs: Default kwargs passed to the API on each call.
+        system_prompt: Optional system prompt to prepend to conversations.
+        build_message_history: If True, maintains conversation history across calls.
+        api_url: API base URL. Defaults to OPENAI_API_URL env var.
+        api_key: API key. Defaults to OPENAI_API_KEY env var.
+        set_cache_control: Cache control mode for prompt caching.
+        cost_tracking: How to handle cost tracking. "default" raises on missing cost,
+            "ignore_errors" silently continues.
+    """
+
     def __init__(
             self,
             model_name: str,
