@@ -81,6 +81,17 @@ And by giving the agent feedback from the environment on how well its workflow p
 Now we have built a self evolving and life long learning system.
 
 
+## Roadmap
+
+- [ ] Implement tests and improve model class and built-in blocks
+- [ ] Create PyPI package (v0)
+- [ ] Add more built-in blocks and examples
+- [ ] Add documentation
+- [ ] Implement support for local models
+- [ ] Implement optimizers and search
+- [ ] Implement tool use
+
+
 ## Acknowledgments
 
 This project includes code from [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent) 

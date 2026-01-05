@@ -4,6 +4,9 @@ class IO:
     def __init__(self, model):
         self.model = model
 
+    def __repr__(self):
+        return f"IO({self.model!r})"
+
     def __call__(self, prompt: str, **kwargs) -> dict:
         return self.model(prompt, **kwargs)
 
@@ -14,6 +17,9 @@ class ChainOfThought:
     def __init__(self, model, template: str = "{prompt}\nLet's think step by step."):
         self.model = model
         self.template = template
+
+    def __repr__(self):
+        return f"ChainOfThought({self.model!r})"
 
     def __call__(self, prompt: str, **kwargs) -> dict:
         return self.model(self.template.format(prompt=prompt), **kwargs)
@@ -35,6 +41,9 @@ class SelfConsistency:
         self.temperature = temperature
         self.aggregator = aggregator
         self.aggregator_template = aggregator_template
+
+    def __repr__(self):
+        return f"SelfConsistency({self.block!r}, n={self.n})"
 
     def __call__(self, prompt: str, **kwargs) -> dict:
         responses = []
@@ -66,6 +75,9 @@ class MultiAgentDebate:
         self.moderator = moderator
         self.debate_template = debate_template
         self.final_template = final_template
+
+    def __repr__(self):
+        return f"MultiAgentDebate({self.agents!r}, rounds={self.rounds})"
 
     def __call__(self, prompt: str, **kwargs) -> dict:
         debate_history = []
@@ -124,6 +136,9 @@ class SelfRefine:
         self.iterations = iterations
         self.critique_template = critique_template
         self.refine_template = refine_template
+
+    def __repr__(self):
+        return f"SelfRefine({self.model!r}, iterations={self.iterations})"
 
     def __call__(self, prompt: str, **kwargs) -> dict:
         # Generate initial response

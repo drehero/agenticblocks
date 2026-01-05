@@ -21,7 +21,7 @@ class Model:
         model_name: The name/ID of the model to use.
         model_kwargs: Default kwargs passed to the API on each call.
         system_prompt: Optional system prompt to prepend to conversations.
-        build_message_history: If True, maintains conversation history across calls.
+        keep_history: If True, maintains conversation history across calls.
         api_url: API base URL. Defaults to OPENAI_API_URL env var.
         api_key: API key. Defaults to OPENAI_API_KEY env var.
         set_cache_control: Cache control mode for prompt caching.
@@ -34,7 +34,7 @@ class Model:
             model_name: str,
             model_kwargs: dict[str, Any] = {},
             system_prompt: str | None = None,
-            build_message_history: bool = False,
+            keep_history: bool = False,
             api_url: str | None = None,
             api_key: str | None = None,
             set_cache_control: Literal["default_end"] | None = None,
@@ -48,7 +48,7 @@ class Model:
         self.model_kwargs = model_kwargs
         self.set_cache_control = set_cache_control
         self.cost_tracking = cost_tracking
-        self.build_message_history = build_message_history
+        self.keep_history = keep_history
         self.cost = 0.0
         self.n_calls = 0
         self.messages = []
@@ -60,9 +60,16 @@ class Model:
     def add_message(self, role: str, content: str, **kwargs):
         self.messages.append({"role": role, "content": content, "timestamp": time.time(), **kwargs})
 
+    def reset_history(self):
+        """Reset message history, keeping only the system message if present."""
+        system_messages = [msg for msg in self.messages if msg["role"] == "system"]
+        self.messages = system_messages[-1:] if system_messages else []
+
+    def __repr__(self):
+        return f"Model({self.model_name!r})"
 
     def __call__(self, prompt, **kwargs) -> dict:
-        if self.build_message_history:
+        if self.keep_history:
             self.add_message("user", prompt)
             messages = self.messages
         else:
@@ -91,7 +98,7 @@ class Model:
 
         content = response["choices"][0]["message"]["content"] or ""
 
-        if self.build_message_history:
+        if self.keep_history:
             self.add_message("assistant", content)
 
         return {
