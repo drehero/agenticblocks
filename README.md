@@ -90,6 +90,7 @@ Now we have built a self evolving and life long learning system.
 - [ ] Implement support for local models
 - [ ] Implement optimizers and search
 - [ ] Implement tool use
+- [ ] Implement a way to share discovered blocks
 
 
 ## Acknowledgments

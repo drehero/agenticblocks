@@ -46,17 +46,24 @@ class SelfConsistency:
         return f"SelfConsistency({self.block!r}, n={self.n})"
 
     def __call__(self, prompt: str, **kwargs) -> dict:
-        responses = []
+        results = []
         for _ in range(self.n):
             result = self.block(prompt, temperature=self.temperature, **kwargs)
-            responses.append(result["content"])
+            results.append(result)
 
-        responses_text = "\n\n".join(responses)
+        responses_text = "\n\n".join(r["content"] for r in results)
 
         if self.aggregator is None:
-            return {"content": responses_text, "extra": {"responses": responses}}
+            return {"content": responses_text, "extra": {"results": results}}
 
-        return self.aggregator(self.aggregator_template.format(responses=responses_text))
+        aggregator_result = self.aggregator(self.aggregator_template.format(responses=responses_text))
+        return {
+            "content": aggregator_result["content"],
+            "extra": {
+                "results": results,
+                "aggregator_result": aggregator_result,
+            },
+        }
 
 
 class MultiAgentDebate:
@@ -80,15 +87,17 @@ class MultiAgentDebate:
         return f"MultiAgentDebate({self.agents!r}, rounds={self.rounds})"
 
     def __call__(self, prompt: str, **kwargs) -> dict:
+        all_results = []
         debate_history = []
 
         # Initial round - each agent responds to the prompt
         for i, agent in enumerate(self.agents):
             result = agent(prompt, **kwargs)
+            all_results.append({"agent": i, "round": 0, "result": result})
             debate_history.append(f"Agent {i + 1}: {result['content']}")
 
         # Debate rounds
-        for _ in range(self.rounds):
+        for round_num in range(self.rounds):
             history_text = "\n\n".join(debate_history)
             round_responses = []
 
@@ -97,6 +106,7 @@ class MultiAgentDebate:
                     self.debate_template.format(prompt=prompt, history=history_text),
                     **kwargs,
                 )
+                all_results.append({"agent": i, "round": round_num + 1, "result": result})
                 round_responses.append(f"Agent {i + 1}: {result['content']}")
 
             debate_history.extend(round_responses)
@@ -118,7 +128,10 @@ class MultiAgentDebate:
 
         return {
             "content": final_result["content"],
-            "extra": {"debate_history": debate_history},
+            "extra": {
+                "all_results": all_results,
+                "final_result": final_result,
+            },
         }
 
 
@@ -142,10 +155,10 @@ class SelfRefine:
 
     def __call__(self, prompt: str, **kwargs) -> dict:
         # Generate initial response
-        result = self.model(prompt, **kwargs)
-        response = result["content"]
+        initial_result = self.model(prompt, **kwargs)
+        response = initial_result["content"]
 
-        history = [{"response": response, "critique": None}]
+        history = [{"response_result": initial_result, "critique_result": None}]
 
         # Iterative refinement
         for _ in range(self.iterations):
@@ -154,16 +167,15 @@ class SelfRefine:
                 self.critique_template.format(prompt=prompt, response=response),
                 **kwargs,
             )
-            critique = critique_result["content"]
 
             # Refine
             refine_result = self.model(
-                self.refine_template.format(prompt=prompt, response=response, critique=critique),
+                self.refine_template.format(prompt=prompt, response=response, critique=critique_result["content"]),
                 **kwargs,
             )
             response = refine_result["content"]
 
-            history.append({"response": response, "critique": critique})
+            history.append({"response_result": refine_result, "critique_result": critique_result})
 
         return {
             "content": response,
