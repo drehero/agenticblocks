@@ -1,8 +1,11 @@
+import agenticblocks as ab
+
+
 class IO:
     """IO block - simple pass-through to the model."""
 
-    def __init__(self, model):
-        self.model = model
+    def __init__(self, model: ab.Model | str):
+        self.model = ab.Model(model) if isinstance(model, str) else model
 
     def __repr__(self):
         return f"IO({self.model!r})"
@@ -14,8 +17,8 @@ class IO:
 class ChainOfThought:
     """Chain of Thought block - prompts the model to think step by step."""
 
-    def __init__(self, model, template: str = "{prompt}\nLet's think step by step."):
-        self.model = model
+    def __init__(self, model: ab.Model | str, template: str = "{prompt}\nLet's think step by step."):
+        self.model = ab.Model(model) if isinstance(model, str) else model
         self.template = template
 
     def __repr__(self):
@@ -140,12 +143,12 @@ class SelfRefine:
 
     def __init__(
         self,
-        model,
+        model: ab.Model | str,
         iterations: int = 2,
         critique_template: str = "Task: {prompt}\n\nResponse:\n{response}\n\nCritique this response. What are its weaknesses? How can it be improved?",
         refine_template: str = "Task: {prompt}\n\nPrevious response:\n{response}\n\nCritique:\n{critique}\n\nProvide an improved response addressing the critique:",
     ):
-        self.model = model
+        self.model = ab.Model(model) if isinstance(model, str) else model
         self.iterations = iterations
         self.critique_template = critique_template
         self.refine_template = refine_template
