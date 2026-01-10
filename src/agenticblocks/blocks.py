@@ -1,39 +1,44 @@
-import agenticblocks as ab
+from __future__ import annotations
+
+from typing import Any, Callable, Optional
+
+from agenticblocks.block import Block
+from agenticblocks.models import Model
 
 
-class IO:
+class IO(Block):
     """IO block - simple pass-through to the model."""
 
-    def __init__(self, model: ab.Model | str):
-        self.model = ab.Model(model) if isinstance(model, str) else model
+    def __init__(self, model: Model | str):
+        self.model = Model(model) if isinstance(model, str) else model
 
     def __repr__(self):
         return f"IO({self.model!r})"
 
-    def __call__(self, prompt: str, **kwargs) -> dict:
+    def forward(self, prompt: str, **kwargs: Any) -> str:
         return self.model(prompt, **kwargs)
 
 
-class ChainOfThought:
+class ChainOfThought(Block):
     """Chain of Thought block - prompts the model to think step by step."""
 
-    def __init__(self, model: ab.Model | str, template: str = "{prompt}\nLet's think step by step."):
-        self.model = ab.Model(model) if isinstance(model, str) else model
+    def __init__(self, model: Model | str, template: str = "{prompt}\nLet's think step by step."):
+        self.model = Model(model) if isinstance(model, str) else model
         self.template = template
 
     def __repr__(self):
         return f"ChainOfThought({self.model!r})"
 
-    def __call__(self, prompt: str, **kwargs) -> dict:
+    def forward(self, prompt: str, **kwargs: Any) -> str:
         return self.model(self.template.format(prompt=prompt), **kwargs)
 
 
-class SelfConsistency:
+class SelfConsistency(Block):
     """Self-Consistency block - runs a block N times and aggregates responses."""
 
     def __init__(
         self,
-        block,
+        block: Callable[..., str],
         n: int = 5,
         temperature: float = 0.7,
         aggregator=None,
@@ -48,33 +53,26 @@ class SelfConsistency:
     def __repr__(self):
         return f"SelfConsistency({self.block!r}, n={self.n})"
 
-    def __call__(self, prompt: str, **kwargs) -> dict:
+    def forward(self, prompt: str, **kwargs: Any) -> str:
         results = []
         for _ in range(self.n):
             result = self.block(prompt, temperature=self.temperature, **kwargs)
             results.append(result)
 
-        responses_text = "\n\n".join(r["content"] for r in results)
+        responses_text = "\n\n".join(results)
 
         if self.aggregator is None:
-            return {"content": responses_text, "extra": {"results": results}}
+            return responses_text
 
-        aggregator_result = self.aggregator(self.aggregator_template.format(responses=responses_text))
-        return {
-            "content": aggregator_result["content"],
-            "extra": {
-                "results": results,
-                "aggregator_result": aggregator_result,
-            },
-        }
+        return self.aggregator(self.aggregator_template.format(responses=responses_text))
 
 
-class MultiAgentDebate:
+class MultiAgentDebate(Block):
     """Multi-Agent Debate block - multiple agents debate to reach a consensus."""
 
     def __init__(
         self,
-        agents: list,
+        agents: list[Callable[..., str]],
         rounds: int = 2,
         moderator=None,
         debate_template: str = "Question: {prompt}\n\nPrevious responses:\n{history}\n\nProvide your response, considering the perspectives above:",
@@ -89,7 +87,7 @@ class MultiAgentDebate:
     def __repr__(self):
         return f"MultiAgentDebate({self.agents!r}, rounds={self.rounds})"
 
-    def __call__(self, prompt: str, **kwargs) -> dict:
+    def forward(self, prompt: str, **kwargs: Any) -> str:
         all_results = []
         debate_history = []
 
@@ -97,7 +95,7 @@ class MultiAgentDebate:
         for i, agent in enumerate(self.agents):
             result = agent(prompt, **kwargs)
             all_results.append({"agent": i, "round": 0, "result": result})
-            debate_history.append(f"Agent {i + 1}: {result['content']}")
+            debate_history.append(f"Agent {i + 1}: {result}")
 
         # Debate rounds
         for round_num in range(self.rounds):
@@ -110,7 +108,7 @@ class MultiAgentDebate:
                     **kwargs,
                 )
                 all_results.append({"agent": i, "round": round_num + 1, "result": result})
-                round_responses.append(f"Agent {i + 1}: {result['content']}")
+                round_responses.append(f"Agent {i + 1}: {result}")
 
             debate_history.extend(round_responses)
 
@@ -129,26 +127,20 @@ class MultiAgentDebate:
                 **kwargs,
             )
 
-        return {
-            "content": final_result["content"],
-            "extra": {
-                "all_results": all_results,
-                "final_result": final_result,
-            },
-        }
+        return final_result
 
 
-class SelfRefine:
+class SelfRefine(Block):
     """Self-Refine block - iteratively critiques and improves responses."""
 
     def __init__(
         self,
-        model: ab.Model | str,
+        model: Model | str,
         iterations: int = 2,
         critique_template: str = "Task: {prompt}\n\nResponse:\n{response}\n\nCritique this response. What are its weaknesses? How can it be improved?",
         refine_template: str = "Task: {prompt}\n\nPrevious response:\n{response}\n\nCritique:\n{critique}\n\nProvide an improved response addressing the critique:",
     ):
-        self.model = ab.Model(model) if isinstance(model, str) else model
+        self.model = Model(model) if isinstance(model, str) else model
         self.iterations = iterations
         self.critique_template = critique_template
         self.refine_template = refine_template
@@ -156,12 +148,9 @@ class SelfRefine:
     def __repr__(self):
         return f"SelfRefine({self.model!r}, iterations={self.iterations})"
 
-    def __call__(self, prompt: str, **kwargs) -> dict:
+    def forward(self, prompt: str, **kwargs: Any) -> str:
         # Generate initial response
-        initial_result = self.model(prompt, **kwargs)
-        response = initial_result["content"]
-
-        history = [{"response_result": initial_result, "critique_result": None}]
+        response = self.model(prompt, **kwargs)
 
         # Iterative refinement
         for _ in range(self.iterations):
@@ -173,14 +162,9 @@ class SelfRefine:
 
             # Refine
             refine_result = self.model(
-                self.refine_template.format(prompt=prompt, response=response, critique=critique_result["content"]),
+                self.refine_template.format(prompt=prompt, response=response, critique=critique_result),
                 **kwargs,
             )
-            response = refine_result["content"]
+            response = refine_result
 
-            history.append({"response_result": refine_result, "critique_result": critique_result})
-
-        return {
-            "content": response,
-            "extra": {"history": history},
-        }
+        return response

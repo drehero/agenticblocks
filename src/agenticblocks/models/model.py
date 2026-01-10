@@ -9,6 +9,7 @@ import openai
 
 from agenticblocks.models.stats import GLOBAL_MODEL_STATS
 from agenticblocks.models.utils import set_cache_control
+from agenticblocks.trace import span
 
 
 class Model:
@@ -68,42 +69,39 @@ class Model:
     def __repr__(self):
         return f"Model({self.model_name!r})"
 
-    def __call__(self, prompt, **kwargs) -> dict:
-        if self.keep_history:
-            self.add_message("user", prompt)
-            messages = self.messages
-        else:
-            messages = self.messages + [{"role": "user", "content": prompt}]
+    def __call__(self, prompt: str, **kwargs) -> str:
+        with span(kind="model", name=repr(self), input=prompt, kwargs=dict(kwargs)) as sp:
+            if self.keep_history:
+                self.add_message("user", prompt)
+                messages = self.messages
+            else:
+                messages = self.messages + [{"role": "user", "content": prompt}]
 
-        if self.set_cache_control:
-            messages = set_cache_control(messages, mode=self.set_cache_control)
+            if self.set_cache_control:
+                messages = set_cache_control(messages, mode=self.set_cache_control)
 
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": msg["role"], "content": msg["content"]} for msg in messages],
-            **(self.model_kwargs | kwargs),
-        ).to_dict()
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": msg["role"], "content": msg["content"]} for msg in messages],
+                **(self.model_kwargs | kwargs),
+            ).to_dict()
 
-        usage = response.get("usage", {})
-        cost = usage.get("cost", 0.0)
-        if cost <= 0.0 and self.cost_tracking != "ignore_errors":
-            raise RuntimeError(
-                f"No valid cost information available from the API response for model {self.model_name}: "
-                f"Usage {usage}, cost {cost}. Cost must be > 0.0. Set cost_tracking: 'ignore_errors' in your config file or "
-            )
+            usage = response.get("usage", {})
+            cost = usage.get("cost", 0.0)
+            if cost <= 0.0 and self.cost_tracking != "ignore_errors":
+                raise RuntimeError(
+                    f"No valid cost information available from the API response for model {self.model_name}: "
+                    f"Usage {usage}, cost {cost}. Cost must be > 0.0. Set cost_tracking: 'ignore_errors'"
+                )
 
-        self.n_calls += 1
-        self.cost += cost
-        GLOBAL_MODEL_STATS.add(cost)
+            self.n_calls += 1
+            self.cost += cost
+            GLOBAL_MODEL_STATS.add(cost)
 
-        content = response["choices"][0]["message"]["content"] or ""
+            content = response["choices"][0]["message"]["content"] or ""
 
-        if self.keep_history:
-            self.add_message("assistant", content)
+            if self.keep_history:
+                self.add_message("assistant", content)
 
-        return {
-            "content": content,
-            "extra": {
-                "response": response,  # already is json
-            },
-        }
+            sp.output = content
+            return content
