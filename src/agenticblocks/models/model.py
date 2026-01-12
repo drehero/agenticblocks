@@ -87,8 +87,8 @@ class Model:
             ).to_dict()
 
             usage = response.get("usage", {})
-            cost = usage.get("cost", 0.0)
-            if cost <= 0.0 and self.cost_tracking != "ignore_errors":
+            cost = usage.get("cost", -1)
+            if cost <= 0 and self.cost_tracking != "ignore_errors":
                 raise RuntimeError(
                     f"No valid cost information available from the API response for model {self.model_name}: "
                     f"Usage {usage}, cost {cost}. Cost must be > 0.0. Set cost_tracking: 'ignore_errors'"
