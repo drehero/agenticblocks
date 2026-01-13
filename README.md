@@ -37,7 +37,7 @@ cot_block("How many r's are in strawberry?")
 
 Under the hood the model class takes care of things like conversation history and limits. This lets you focus on combining the agentic blocks to more complex workflows.
 
-For example into a simple Chain of Thought with Self Consistency (CoT-SC) block:
+For example into a Chain of Thought with Self Consistency (CoT-SC) block:
 
 ```python
 class CoTSC:
@@ -66,14 +66,40 @@ import agenticblocks as ab
 
 cot = ab.ChainOfThought(ab.Model(cot_model_name))
 cotsc = ab.SelfConsistency(ab.Model(cotsc_model_name))
-tot = ab.TreeOfThought(ab.Model(tot_model_name))
+refine = ab.SelfRefine(ab.Model(refine_model_name))
 
-mad = ab.MultiAgentDebate([cot, cotsc, tot])
+mad = ab.MultiAgentDebate([cot, cotsc, refine])
 mad("How many r's are in strawberry?")
 ```
 
 Using built in and custom blocks we can define powerful reasoning flows which produce better solutions than standard LLM calls.
 
-But why stop here? Because agenticblocks makes building workflows so simple we can use it to create an agent which uses the framework to build its own solution to a task.
-And by giving the agent feedback from the environment on how well it's workflow performed it can update and refine its creation.
+### But why stop here?
+
+agenticblocks makes building workflows so simple we can use it to create an agent which uses the framework to build its own solution to a task.
+And by giving the agent feedback from the environment on how well its workflow performed it can update and refine its creation.
 Now we have built a self evolving and life long learning system.
+
+For more details on how to do this check out the [examples](examples/).
+
+## Roadmap
+
+- [ ] Implement tests and improve model class and built-in blocks
+- [ ] Create PyPI package (v0)
+- [ ] Add more built-in blocks and examples
+- [ ] Add documentation
+- [ ] Implement support for local models
+- [ ] Implement optimizers and search
+- [ ] Implement tool use
+- [ ] Implement a way to share discovered blocks
+
+
+## Acknowledgments
+
+This project includes code from [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent) 
+by Kilian A. Lieret and Carlos E. Jimenez, licensed under the MIT License.
+
+It is inspired by [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent), [live-swe-agent](https://github.com/OpenAutoCoder/live-swe-agent) and other self evolving agent research, in particular:
+* [Automated Design of Agentic Systems (ADAS)](https://github.com/ShengranHu/ADAS)
+* [MAS-Zero: Multi-Agent Systems with Zero Supervision](https://github.com/SalesforceAIResearch/MAS-Zero)
+* a comprehensive overview of the self evolving agent research can be found [here](https://github.com/EvoAgentX/Awesome-Self-Evolving-Agents).

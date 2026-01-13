@@ -1,0 +1,158 @@
+from __future__ import annotations
+
+import contextlib
+import contextvars
+import json
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any, Dict, Iterator, List, Literal, Optional
+
+SpanKind = Literal["block", "model"]
+
+
+@dataclass
+class TraceSpan:
+    id: str
+    name: str
+    kind: SpanKind
+    start_time: float
+    end_time: Optional[float] = None
+    input: Optional[str] = None
+    output: Optional[str] = None
+    kwargs: Dict[str, Any] = field(default_factory=dict)
+    error: Optional[str] = None
+    children: List["TraceSpan"] = field(default_factory=list)
+
+    @property
+    def duration_s(self) -> Optional[float]:
+        if self.end_time is None:
+            return None
+        return self.end_time - self.start_time
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "kind": self.kind,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "duration_s": self.duration_s,
+            "input": self.input,
+            "output": self.output,
+            "kwargs": self.kwargs,
+            "error": self.error,
+            "children": [c.to_dict() for c in self.children],
+        }
+
+
+@dataclass
+class Trace:
+    root_spans: List[TraceSpan] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"spans": [s.to_dict() for s in self.root_spans]}
+
+    def to_json(self, *, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
+    def pretty(self) -> str:
+        lines: List[str] = []
+
+        def _fmt(span: TraceSpan, depth: int) -> None:
+            dur = span.duration_s
+            dur_txt = f"{dur:.3f}s" if dur is not None else "running"
+            head = f"{'  ' * depth}- [{span.kind}] {span.name} ({dur_txt})"
+            lines.append(head)
+            if span.error:
+                lines.append(f"{'  ' * (depth + 1)}error: {span.error}")
+            if span.input is not None:
+                lines.append(f"{'  ' * (depth + 1)}in: {span.input}")
+            if span.output is not None:
+                lines.append(f"{'  ' * (depth + 1)}out: {span.output}")
+            for child in span.children:
+                _fmt(child, depth + 1)
+
+        for s in self.root_spans:
+            _fmt(s, 0)
+        return "\n".join(lines)
+
+
+_active_trace: contextvars.ContextVar[Optional[Trace]] = contextvars.ContextVar("agenticblocks_active_trace", default=None)
+_span_stack: contextvars.ContextVar[List[TraceSpan]] = contextvars.ContextVar("agenticblocks_span_stack", default=[])
+
+
+def get_active_trace() -> Optional[Trace]:
+    return _active_trace.get()
+
+
+def _new_span_id() -> str:
+    return uuid.uuid4().hex
+
+
+def _push_span(span: TraceSpan) -> None:
+    stack = _span_stack.get()
+    if stack:
+        stack[-1].children.append(span)
+    else:
+        trace = _active_trace.get()
+        if trace is not None:
+            trace.root_spans.append(span)
+    stack.append(span)
+
+
+def _pop_span() -> Optional[TraceSpan]:
+    stack = _span_stack.get()
+    if not stack:
+        return None
+    return stack.pop()
+
+
+@contextlib.contextmanager
+def span(
+    *,
+    kind: SpanKind,
+    name: str,
+    input: Optional[str] = None,
+    kwargs: Optional[Dict[str, Any]] = None,
+) -> Iterator[TraceSpan]:
+    """Create a traced span iff tracing is active; otherwise yields a dummy span."""
+    trace = _active_trace.get()
+    if trace is None:
+        dummy = TraceSpan(id="__not_traced__", name=name, kind=kind, start_time=time.time())
+        try:
+            yield dummy
+        finally:
+            pass
+        return
+
+    sp = TraceSpan(
+        id=_new_span_id(),
+        name=name,
+        kind=kind,
+        start_time=time.time(),
+        input=input,
+        kwargs=kwargs or {},
+    )
+    _push_span(sp)
+    try:
+        yield sp
+    except Exception as e:  # noqa: BLE001
+        sp.error = f"{type(e).__name__}: {e}"
+        raise
+    finally:
+        sp.end_time = time.time()
+        _pop_span()
+
+
+@contextlib.contextmanager
+def trace() -> Iterator[Trace]:
+    """Opt-in tracing context. Collects nested spans for block/model calls."""
+    t = Trace()
+    token_trace = _active_trace.set(t)
+    token_stack = _span_stack.set([])
+    try:
+        yield t
+    finally:
+        _span_stack.reset(token_stack)
+        _active_trace.reset(token_trace)
