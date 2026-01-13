@@ -80,6 +80,7 @@ agenticblocks makes building workflows so simple we can use it to create an agen
 And by giving the agent feedback from the environment on how well its workflow performed it can update and refine its creation.
 Now we have built a self evolving and life long learning system.
 
+For more details on how to do this check out the [examples](examples/).
 
 ## Roadmap
 
@@ -98,4 +99,7 @@ Now we have built a self evolving and life long learning system.
 This project includes code from [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent) 
 by Kilian A. Lieret and Carlos E. Jimenez, licensed under the MIT License.
 
-It is inspired by [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent), [live-swe-agent](https://github.com/OpenAutoCoder/live-swe-agent) and other self evolving agent research, for which a comprehensive overview can be found [here](https://github.com/EvoAgentX/Awesome-Self-Evolving-Agents).
+It is inspired by [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent), [live-swe-agent](https://github.com/OpenAutoCoder/live-swe-agent) and other self evolving agent research, in particular:
+* [Automated Design of Agentic Systems (ADAS)](https://github.com/ShengranHu/ADAS)
+* [MAS-Zero: Multi-Agent Systems with Zero Supervision](https://github.com/SalesforceAIResearch/MAS-Zero)
+* a comprehensive overview of the self evolving agent research can be found [here](https://github.com/EvoAgentX/Awesome-Self-Evolving-Agents).
