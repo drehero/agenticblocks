@@ -3,6 +3,7 @@
 # Licensed under the MIT License
 import os
 import time
+import warnings
 from typing import Any, Literal
 
 import openai
@@ -13,21 +14,27 @@ from agenticblocks.trace import span
 
 
 class Model:
-    """A wrapper for OpenAI-compatible API models.
+    f"""A wrapper for OpenAI-compatible API models.
 
     Takes text as input and outputs text. Handles conversation history,
-    cost tracking, and cache control.
+    cost tracking (when available), and cache control.
 
     Args:
         model_name: The name/ID of the model to use.
         model_kwargs: Default kwargs passed to the API on each call.
         system_prompt: Optional system prompt to prepend to conversations.
         keep_history: If True, maintains conversation history across calls.
-        api_url: API base URL. Defaults to OPENAI_API_URL env var.
-        api_key: API key. Defaults to OPENAI_API_KEY env var.
+        web_search: If True, enables web search. For OpenRouter, toggles the
+            ":online" model suffix. For other providers, enables their
+            web search tool where supported.
+        provider: The provider to use. If None or api_url is provided, the provider is inferred from the api_url otherwise it behaves like openai.
+            Supported providers: "openrouter", "openai", "google", "anthropic", "xai".
+        api_url: API base URL. Defaults to the provider's base URL, {{PROVIDER_NAME}}_API_URL env var or the OPENAI_API_URL env var.
+        api_key: API key. Defaults to {{PROVIDER_NAME}}_API_KEY env var or OPENAI_API_KEY env var.
         set_cache_control: Cache control mode for prompt caching.
-        cost_tracking: How to handle cost tracking. "default" raises on missing cost,
-            "ignore_errors" silently continues.
+        cost_tracking: Reserved for compatibility. Cost tracking only uses
+            provider-reported values when available; otherwise cost=0.0 and a
+            one-time warning is emitted.
     """
 
     def __init__(
@@ -36,16 +43,36 @@ class Model:
             model_kwargs: dict[str, Any] = {},
             system_prompt: str | None = None,
             keep_history: bool = False,
+            web_search: bool = True,
+            provider: None | Literal["openrouter", "openai", "google", "anthropic", "xai"] = None,
             api_url: str | None = None,
             api_key: str | None = None,
             set_cache_control: Literal["default_end"] | None = None,
             cost_tracking: Literal["default", "ignore_errors"] = "default",
         ) -> None:
         self.model_name = model_name
-        self.client = openai.OpenAI(
-            base_url=api_url if api_url is not None else os.getenv("OPENAI_API_URL"),
-            api_key=api_key if api_key is not None else os.getenv("OPENAI_API_KEY"),
-        )
+        self.web_search = web_search
+
+        self.provider = provider.lower() if provider is not None else None
+        if self.provider is None:
+            self.provider = "openai"
+            if api_url is not None:
+                for provider in ["openrouter", "google", "anthropic", "xai"]:
+                    if provider in api_url.lower():
+                        self.provider = provider
+                        break
+
+        if self.provider == "openrouter":
+            self.model_name = self._apply_openrouter_online_suffix(self.model_name)
+
+        base_url = self._resolve_base_url(api_url)
+        api_key = api_key or os.getenv(f"{self.provider.upper()}_API_KEY") or os.getenv("OPENAI_API_KEY")
+
+        if api_key is None:
+            raise ValueError(f"No API key provided for provider {self.provider}. Please set the {self.provider.upper()}_API_KEY environment variable or pass it as the api_key argument.")
+
+        self._init_client(base_url=base_url, api_key=api_key)
+
         self.model_kwargs = model_kwargs
         self.set_cache_control = set_cache_control
         self.cost_tracking = cost_tracking
@@ -53,6 +80,7 @@ class Model:
         self.cost = 0.0
         self.n_calls = 0
         self.messages = []
+        self._warned_missing_cost = False
 
         if system_prompt is not None:
             self.add_message("system", system_prompt)
@@ -80,19 +108,19 @@ class Model:
             if self.set_cache_control:
                 messages = set_cache_control(messages, mode=self.set_cache_control)
 
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[{"role": msg["role"], "content": msg["content"]} for msg in messages],
-                **(self.model_kwargs | kwargs),
-            ).to_dict()
+            response = self._create_chat_completion(messages=messages, **kwargs)
 
             usage = response.get("usage", {})
-            cost = usage.get("cost", -1)
-            if cost <= 0 and self.cost_tracking != "ignore_errors":
-                raise RuntimeError(
-                    f"No valid cost information available from the API response for model {self.model_name}: "
-                    f"Usage {usage}, cost {cost}. Cost must be > 0.0. Set cost_tracking: 'ignore_errors'"
-                )
+            cost = usage.get("cost")
+            if not isinstance(cost, (int, float)) or cost <= 0:
+                cost = 0.0
+                if not self._warned_missing_cost:
+                    warnings.warn(
+                        "Cost tracking is not available for this provider/model. "
+                        "Continuing with cost=0.0.",
+                        stacklevel=2,
+                    )
+                    self._warned_missing_cost = True
 
             self.n_calls += 1
             self.cost += cost
@@ -105,3 +133,195 @@ class Model:
 
             sp.output = content
             return content
+
+    def _resolve_base_url(self, api_url: str | None) -> str | None:
+        default_base_urls = {
+            "openai": "https://api.openai.com/v1",
+            "openrouter": "https://openrouter.ai/api/v1",
+            "xai": "https://api.x.ai/v1",
+            "anthropic": "https://api.anthropic.com",
+            "google": "https://generativelanguage.googleapis.com/v1beta",
+        }
+        return (
+            api_url
+            or os.getenv(f"{self.provider.upper()}_API_URL")
+            or os.getenv("OPENAI_API_URL")
+            or default_base_urls.get(self.provider)
+        )
+
+    def _init_client(self, *, base_url: str | None, api_key: str) -> None:
+        if self.provider in ["openai", "openrouter", "xai"]:
+            self.client = openai.OpenAI(base_url=base_url, api_key=api_key)
+            self.client_provider = "openai"
+            return
+        if self.provider == "google":
+            from google import genai  # type: ignore[import-not-found]
+            self.client = genai.Client(api_key=api_key)
+            self.client_provider = "google"
+            return
+        if self.provider == "anthropic":
+            import anthropic  # type: ignore[import-not-found]
+            if base_url is None:
+                self.client = anthropic.Anthropic(api_key=api_key)
+            else:
+                self.client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
+            self.client_provider = "anthropic"
+            return
+        raise ValueError(f"Unsupported provider: {self.provider}")
+
+    def _create_chat_completion(self, *, messages: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
+        if self.client_provider == "openai":
+            merged_kwargs = self._apply_openai_web_search_kwargs(self.model_kwargs | kwargs)
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": msg["role"], "content": msg["content"]} for msg in messages],
+                **merged_kwargs,
+            )
+            return response.to_dict()
+        if self.client_provider == "google":
+            contents = self._build_google_contents(messages)
+            merged_kwargs = self._apply_google_web_search_kwargs(self.model_kwargs | kwargs)
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=contents,
+                **merged_kwargs,
+            )
+            usage = {}
+            usage_metadata = getattr(response, "usage_metadata", None)
+            if usage_metadata is not None:
+                usage = {
+                    "input_tokens": getattr(usage_metadata, "prompt_token_count", None),
+                    "output_tokens": getattr(usage_metadata, "candidates_token_count", None),
+                }
+            content_text = getattr(response, "text", "") or ""
+            return {"choices": [{"message": {"content": content_text}}], "usage": usage}
+        if self.client_provider == "anthropic":
+            system_prompt, cleaned_messages = self._build_anthropic_messages(messages)
+            merged_kwargs = self._apply_anthropic_web_search_kwargs(self.model_kwargs | kwargs)
+            response = self.client.messages.create(
+                model=self.model_name,
+                system=system_prompt,
+                messages=cleaned_messages,
+                **merged_kwargs,
+            )
+            usage = {}
+            if getattr(response, "usage", None) is not None:
+                usage = {
+                    "input_tokens": getattr(response.usage, "input_tokens", None),
+                    "output_tokens": getattr(response.usage, "output_tokens", None),
+                }
+            content_text = self._extract_anthropic_text(response)
+            return {"choices": [{"message": {"content": content_text}}], "usage": usage}
+        raise RuntimeError(f"Unsupported client provider: {self.client_provider}")
+
+    def _build_google_contents(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        system_messages = [msg["content"] for msg in messages if msg["role"] == "system"]
+        system_prefix = ""
+        if system_messages:
+            system_prefix = "\n".join(system_messages)
+
+        contents: list[dict[str, Any]] = []
+        for msg in messages:
+            if msg["role"] == "system":
+                continue
+            role = "user" if msg["role"] == "user" else "model"
+            text = msg["content"]
+            if role == "user" and system_prefix:
+                text = f"{system_prefix}\n\n{text}"
+                system_prefix = ""
+            contents.append({"role": role, "parts": [{"text": text}]})
+
+        if system_prefix:
+            contents.insert(0, {"role": "user", "parts": [{"text": system_prefix}]})
+        return contents
+
+    def _build_anthropic_messages(self, messages: list[dict[str, Any]]) -> tuple[str | None, list[dict[str, Any]]]:
+        system_messages = [msg["content"] for msg in messages if msg["role"] == "system"]
+        system_prompt = system_messages[-1] if system_messages else None
+        cleaned_messages = [
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in messages
+            if msg["role"] != "system"
+        ]
+        return system_prompt, cleaned_messages
+
+    def _apply_openrouter_online_suffix(self, model_name: str) -> str:
+        suffix = ":online"
+        if self.web_search:
+            return model_name if model_name.endswith(suffix) else f"{model_name}{suffix}"
+        if model_name.endswith(suffix):
+            return model_name[: -len(suffix)]
+        return model_name
+
+    def _apply_openai_web_search_kwargs(self, merged_kwargs: dict[str, Any]) -> dict[str, Any]:
+        if not self.web_search or self.provider == "openrouter":
+            return merged_kwargs
+        if self.provider == "xai":
+            return self._ensure_tool(merged_kwargs, {"type": "web_search"})
+        return merged_kwargs
+
+    def _apply_google_web_search_kwargs(self, merged_kwargs: dict[str, Any]) -> dict[str, Any]:
+        if not self.web_search:
+            return merged_kwargs
+        from google.genai import types  # type: ignore[import-not-found]
+
+        tool = types.Tool(google_search=types.GoogleSearch())
+        config = merged_kwargs.get("config")
+        if config is None:
+            merged_kwargs["config"] = types.GenerateContentConfig(tools=[tool])
+            return merged_kwargs
+
+        tools = None
+        if hasattr(config, "tools"):
+            tools = list(config.tools or [])
+        elif isinstance(config, dict):
+            tools = list(config.get("tools") or [])
+
+        if tools is not None and not any(getattr(t, "google_search", None) for t in tools):
+            tools.append(tool)
+            if hasattr(config, "tools"):
+                config.tools = tools
+            elif isinstance(config, dict):
+                config["tools"] = tools
+        return merged_kwargs
+
+    def _apply_anthropic_web_search_kwargs(self, merged_kwargs: dict[str, Any]) -> dict[str, Any]:
+        if not self.web_search:
+            return merged_kwargs
+        return self._ensure_tool(
+            merged_kwargs,
+            {"type": "web_search_20250305", "name": "web_search"},
+            tools_key="tools",
+        )
+
+    @staticmethod
+    def _ensure_tool(
+        merged_kwargs: dict[str, Any],
+        tool: dict[str, Any],
+        *,
+        tools_key: str = "tools",
+    ) -> dict[str, Any]:
+        tools = merged_kwargs.get(tools_key)
+        if tools is None:
+            merged_kwargs[tools_key] = [tool]
+            return merged_kwargs
+        if not isinstance(tools, list):
+            return merged_kwargs
+        if not any(isinstance(existing, dict) and existing.get("type") == tool.get("type") for existing in tools):
+            tools.append(tool)
+        return merged_kwargs
+
+    @staticmethod
+    def _extract_anthropic_text(response: Any) -> str:
+        content = getattr(response, "content", None)
+        if not content:
+            return ""
+        text_parts = []
+        for block in content:
+            block_type = getattr(block, "type", None) if not isinstance(block, dict) else block.get("type")
+            if block_type != "text":
+                continue
+            block_text = getattr(block, "text", None) if not isinstance(block, dict) else block.get("text")
+            if block_text:
+                text_parts.append(block_text)
+        return "".join(text_parts)
