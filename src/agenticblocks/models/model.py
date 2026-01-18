@@ -66,7 +66,9 @@ class Model:
             self.model_name = self._apply_openrouter_online_suffix(self.model_name)
 
         base_url = self._resolve_base_url(api_url)
-        api_key = api_key or os.getenv(f"{self.provider.upper()}_API_KEY") or os.getenv("OPENAI_API_KEY")
+        api_key = api_key or os.getenv(f"{self.provider.upper()}_API_KEY")
+        if api_key is None and self.provider == "openai":
+            api_key = os.getenv("OPENAI_API_KEY")
 
         if api_key is None:
             raise ValueError(f"No API key provided for provider {self.provider}. Please set the {self.provider.upper()}_API_KEY environment variable or pass it as the api_key argument.")
@@ -142,17 +144,20 @@ class Model:
             "anthropic": "https://api.anthropic.com",
             "google": "https://generativelanguage.googleapis.com/v1beta",
         }
-        return (
-            api_url
-            or os.getenv(f"{self.provider.upper()}_API_URL")
-            or os.getenv("OPENAI_API_URL")
-            or default_base_urls.get(self.provider)
-        )
+        base_url = api_url or os.getenv(f"{self.provider.upper()}_API_URL")
+        if base_url is None and self.provider == "openai":
+            base_url = os.getenv("OPENAI_API_URL")
+        return base_url or default_base_urls.get(self.provider)
 
     def _init_client(self, *, base_url: str | None, api_key: str) -> None:
-        if self.provider in ["openai", "openrouter", "xai"]:
+        if self.provider in ["openai", "openrouter"]:
             self.client = openai.OpenAI(base_url=base_url, api_key=api_key)
             self.client_provider = "openai"
+            return
+        if self.provider == "xai":
+            from xai_sdk import Client  # type: ignore[import-not-found]
+            self.client = Client(api_key=api_key)
+            self.client_provider = "xai"
             return
         if self.provider == "google":
             from google import genai  # type: ignore[import-not-found]
@@ -170,6 +175,14 @@ class Model:
         raise ValueError(f"Unsupported provider: {self.provider}")
 
     def _create_chat_completion(self, *, messages: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
+        if self.client_provider == "xai":
+            merged_kwargs = self._apply_xai_web_search_kwargs(self.model_kwargs | kwargs)
+            chat_kwargs = self._filter_xai_kwargs(merged_kwargs)
+            chat = self.client.chat.create(model=self.model_name, **chat_kwargs)
+            self._append_xai_messages(chat, messages)
+            response = chat.sample()
+            content_text = getattr(response, "content", "") or ""
+            return {"choices": [{"message": {"content": content_text}}], "usage": {}}
         if self.client_provider == "openai":
             merged_kwargs = self._apply_openai_web_search_kwargs(self.model_kwargs | kwargs)
             response = self.client.chat.completions.create(
@@ -198,12 +211,14 @@ class Model:
         if self.client_provider == "anthropic":
             system_prompt, cleaned_messages = self._build_anthropic_messages(messages)
             merged_kwargs = self._apply_anthropic_web_search_kwargs(self.model_kwargs | kwargs)
-            response = self.client.messages.create(
-                model=self.model_name,
-                system=system_prompt,
-                messages=cleaned_messages,
+            request_kwargs = {
+                "model": self.model_name,
+                "messages": cleaned_messages,
                 **merged_kwargs,
-            )
+            }
+            if system_prompt is not None:
+                request_kwargs["system"] = system_prompt
+            response = self.client.messages.create(**request_kwargs)
             usage = {}
             if getattr(response, "usage", None) is not None:
                 usage = {
@@ -235,15 +250,20 @@ class Model:
             contents.insert(0, {"role": "user", "parts": [{"text": system_prefix}]})
         return contents
 
-    def _build_anthropic_messages(self, messages: list[dict[str, Any]]) -> tuple[str | None, list[dict[str, Any]]]:
+    def _build_anthropic_messages(
+        self, messages: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]]]:
         system_messages = [msg["content"] for msg in messages if msg["role"] == "system"]
         system_prompt = system_messages[-1] if system_messages else None
+        system_blocks = None
+        if system_prompt:
+            system_blocks = [{"type": "text", "text": system_prompt}]
         cleaned_messages = [
             {"role": msg["role"], "content": msg["content"]}
             for msg in messages
             if msg["role"] != "system"
         ]
-        return system_prompt, cleaned_messages
+        return system_blocks, cleaned_messages
 
     def _apply_openrouter_online_suffix(self, model_name: str) -> str:
         suffix = ":online"
@@ -256,9 +276,55 @@ class Model:
     def _apply_openai_web_search_kwargs(self, merged_kwargs: dict[str, Any]) -> dict[str, Any]:
         if not self.web_search or self.provider == "openrouter":
             return merged_kwargs
-        if self.provider == "xai":
-            return self._ensure_tool(merged_kwargs, {"type": "web_search"})
         return merged_kwargs
+
+    def _apply_xai_web_search_kwargs(self, merged_kwargs: dict[str, Any]) -> dict[str, Any]:
+        if not self.web_search:
+            return merged_kwargs
+        try:
+            from xai_sdk.tools import web_search  # type: ignore[import-not-found]
+        except Exception:
+            return merged_kwargs
+        tools = merged_kwargs.get("tools")
+        tool_instance = web_search()
+        if tools is None:
+            merged_kwargs["tools"] = [tool_instance]
+        elif isinstance(tools, list):
+            if not any(self._is_xai_web_search_tool(t) for t in tools):
+                tools.append(tool_instance)
+        return merged_kwargs
+
+    @staticmethod
+    def _filter_xai_kwargs(merged_kwargs: dict[str, Any]) -> dict[str, Any]:
+        allowed = {"tools", "tool_choice", "temperature", "max_tokens", "top_p", "seed"}
+        return {key: value for key, value in merged_kwargs.items() if key in allowed}
+
+    @staticmethod
+    def _append_xai_messages(chat: Any, messages: list[dict[str, Any]]) -> None:
+        from xai_sdk import chat as xai_chat  # type: ignore[import-not-found]
+
+        system_fn = getattr(xai_chat, "system", None)
+        user_fn = getattr(xai_chat, "user", None)
+        assistant_fn = getattr(xai_chat, "assistant", None)
+
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "system" and system_fn is not None:
+                chat.append(system_fn(content))
+            elif role == "user" and user_fn is not None:
+                chat.append(user_fn(content))
+            elif role == "assistant" and assistant_fn is not None:
+                chat.append(assistant_fn(content))
+            else:
+                chat.append({"role": role, "content": content})
+
+    @staticmethod
+    def _is_xai_web_search_tool(tool: Any) -> bool:
+        tool_type = getattr(tool, "type", None)
+        if tool_type is not None:
+            return tool_type == "web_search"
+        return getattr(tool, "name", None) == "web_search"
 
     def _apply_google_web_search_kwargs(self, merged_kwargs: dict[str, Any]) -> dict[str, Any]:
         if not self.web_search:
@@ -307,8 +373,14 @@ class Model:
             return merged_kwargs
         if not isinstance(tools, list):
             return merged_kwargs
-        if not any(isinstance(existing, dict) and existing.get("type") == tool.get("type") for existing in tools):
-            tools.append(tool)
+        for existing in tools:
+            if not isinstance(existing, dict) or existing.get("type") != tool.get("type"):
+                continue
+            for key, value in tool.items():
+                if key not in existing:
+                    existing[key] = value
+            return merged_kwargs
+        tools.append(tool)
         return merged_kwargs
 
     @staticmethod
