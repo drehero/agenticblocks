@@ -30,8 +30,8 @@ class TraceSpan:
             return None
         return self.end_time - self.start_time
 
-    def to_dict(self) -> Dict[str, Any]:
-        return {
+    def to_dict(self, *, keys: List[str] | None = None) -> Dict[str, Any]:
+        payload = {
             "id": self.id,
             "name": self.name,
             "kind": self.kind,
@@ -42,7 +42,14 @@ class TraceSpan:
             "output": self.output,
             "kwargs": self.kwargs,
             "error": self.error,
-            "children": [c.to_dict() for c in self.children],
+            "children": [c.to_dict(keys=keys) for c in self.children],
+        }
+        if keys is None:
+            return payload
+        return {
+            key: value
+            for key, value in payload.items()
+            if key in keys or key == "children"
         }
 
 
@@ -50,11 +57,12 @@ class TraceSpan:
 class Trace:
     root_spans: List[TraceSpan] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
-        return {"spans": [s.to_dict() for s in self.root_spans]}
+    def to_dict(self, *, keys: List[str] | None = None) -> Dict[str, Any]:
+        payload = {"spans": [s.to_dict(keys=keys) for s in self.root_spans]}
+        return payload
 
-    def to_json(self, *, indent: int = 2) -> str:
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    def to_json(self, *, indent: int = 2, keys: List[str] | None = None) -> str:
+        return json.dumps(self.to_dict(keys=keys), indent=indent, ensure_ascii=False)
 
     def pretty(self) -> str:
         lines: List[str] = []
