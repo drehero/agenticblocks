@@ -3,13 +3,14 @@
 # Licensed under the MIT License
 import os
 import time
+import uuid
 import warnings
 from typing import Any, Literal
 
 import openai
 
 from agenticblocks.models.stats import GLOBAL_MODEL_STATS
-from agenticblocks.models.utils import set_cache_control
+from agenticblocks.models.utils import apply_anthropic_cache_control
 from agenticblocks.trace import span
 
 
@@ -17,13 +18,14 @@ class Model:
     f"""A wrapper for OpenAI-compatible API models.
 
     Takes text as input and outputs text. Handles conversation history,
-    cost tracking (when available), and cache control.
+    cost tracking (when available), and automatic cache control.
 
     Args:
         model_name: The name/ID of the model to use.
         model_kwargs: Default kwargs passed to the API on each call.
         system_prompt: Optional system prompt to prepend to conversations.
         keep_history: If True, maintains conversation history across calls.
+            When enabled, provider-specific caching is automatically applied.
         web_search: If True, enables web search. For OpenRouter, toggles the
             ":online" model suffix. For other providers, enables their
             web search tool where supported.
@@ -31,7 +33,6 @@ class Model:
             Supported providers: "openrouter", "openai", "google", "anthropic", "xai".
         api_url: API base URL. Defaults to the provider's base URL, {{PROVIDER_NAME}}_API_URL env var or the OPENAI_API_URL env var.
         api_key: API key. Defaults to {{PROVIDER_NAME}}_API_KEY env var or OPENAI_API_KEY env var.
-        set_cache_control: Cache control mode for prompt caching.
         cost_tracking: Reserved for compatibility. Cost tracking only uses
             provider-reported values when available; otherwise cost=0.0 and a
             one-time warning is emitted.
@@ -47,7 +48,6 @@ class Model:
             provider: None | Literal["openrouter", "openai", "google", "anthropic", "xai"] = None,
             api_url: str | None = None,
             api_key: str | None = None,
-            set_cache_control: Literal["default_end"] | None = None,
             cost_tracking: Literal["default", "ignore_errors"] = "default",
         ) -> None:
         self.model_name = model_name
@@ -76,8 +76,9 @@ class Model:
         self._init_client(base_url=base_url, api_key=api_key)
 
         self.model_kwargs = model_kwargs
-        self.set_cache_control = set_cache_control
         self.cost_tracking = cost_tracking
+        # Generate a unique conversation ID for xAI caching
+        self._xai_conversation_id = str(uuid.uuid4())
         self.keep_history = keep_history
         self.cost = 0.0
         self.n_calls = 0
@@ -106,9 +107,6 @@ class Model:
                 messages = self.messages
             else:
                 messages = self.messages + [{"role": "user", "content": prompt}]
-
-            if self.set_cache_control:
-                messages = set_cache_control(messages, mode=self.set_cache_control)
 
             response = self._create_chat_completion(messages=messages, **kwargs)
 
@@ -185,9 +183,10 @@ class Model:
             return {"choices": [{"message": {"content": content_text}}], "usage": {}}
         if self.client_provider == "openai":
             merged_kwargs = self._apply_openai_web_search_kwargs(self.model_kwargs | kwargs)
+            formatted_messages = self._format_openai_messages(messages)
             response = self.client.chat.completions.create(
                 model=self.model_name,
-                messages=[{"role": msg["role"], "content": msg["content"]} for msg in messages],
+                messages=formatted_messages,
                 **merged_kwargs,
             )
             return response.to_dict()
@@ -210,6 +209,11 @@ class Model:
             return {"choices": [{"message": {"content": content_text}}], "usage": usage}
         if self.client_provider == "anthropic":
             system_prompt, cleaned_messages = self._build_anthropic_messages(messages)
+            # Apply cache control when keep_history is enabled
+            if self.keep_history:
+                system_prompt, cleaned_messages = apply_anthropic_cache_control(
+                    system_prompt, cleaned_messages
+                )
             merged_kwargs = self._apply_anthropic_web_search_kwargs(self.model_kwargs | kwargs)
             request_kwargs = {
                 "model": self.model_name,
@@ -264,6 +268,43 @@ class Model:
             if msg["role"] != "system"
         ]
         return system_blocks, cleaned_messages
+
+    def _format_openai_messages(
+        self, messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Format messages for OpenAI-compatible API.
+
+        For OpenRouter with Anthropic models, applies cache control when keep_history is enabled.
+        """
+        formatted = [{"role": msg["role"], "content": msg["content"]} for msg in messages]
+
+        # Apply cache control for OpenRouter with Anthropic models
+        if self.keep_history and self._is_openrouter_anthropic_model():
+            # Build system blocks and non-system messages like Anthropic provider
+            system_messages = [msg["content"] for msg in formatted if msg["role"] == "system"]
+            system_blocks = None
+            if system_messages:
+                system_blocks = [{"type": "text", "text": system_messages[-1]}]
+            non_system = [msg for msg in formatted if msg["role"] != "system"]
+
+            # Apply cache control
+            system_blocks, non_system = apply_anthropic_cache_control(system_blocks, non_system)
+
+            # Reconstruct messages with cached system prompt
+            result = []
+            if system_blocks:
+                result.append({"role": "system", "content": system_blocks})
+            result.extend(non_system)
+            return result
+
+        return formatted
+
+    def _is_openrouter_anthropic_model(self) -> bool:
+        """Check if using OpenRouter with an Anthropic model."""
+        if self.provider != "openrouter":
+            return False
+        model_lower = self.model_name.lower()
+        return "anthropic" in model_lower or "claude" in model_lower
 
     def _apply_openrouter_online_suffix(self, model_name: str) -> str:
         suffix = ":online"
