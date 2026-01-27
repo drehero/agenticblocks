@@ -6,6 +6,16 @@ agenticblocks offers two concepts: models and blocks (tools and environments com
 
 Combining these lets you build powerful multi agent systems.
 
+## Installation
+
+```bash
+pip install git+https://github.com/drehero/agenticblocks.git              # Core + OpenAI/OpenRouter support
+pip install "git+https://github.com/drehero/agenticblocks.git#egg=agenticblocks[anthropic]"   # + Anthropic support
+pip install "git+https://github.com/drehero/agenticblocks.git#egg=agenticblocks[google]"      # + Google Gemini support
+pip install "git+https://github.com/drehero/agenticblocks.git#egg=agenticblocks[xai]"         # + xAI/Grok support
+pip install "git+https://github.com/drehero/agenticblocks.git#egg=agenticblocks[all]"         # All providers
+```
+
 ### Models
 
 A model takes text as input and outputs text:

@@ -8,7 +8,17 @@ version = "0.1.0"
 description = ""
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "openai>=1.0.0",
+]
 
 [project.optional-dependencies]
+anthropic = ["anthropic>=0.30.0"]
+google = ["google-genai>=0.1.0"]
+xai = ["xai-sdk>=0.1.0"]
+all = [
+    "anthropic>=0.30.0",
+    "google-genai>=0.1.0",
+    "xai-sdk>=0.1.0",
+]
 dev = ["pytest"]
