@@ -92,10 +92,12 @@ class Model:
     def add_message(self, role: str, content: str, **kwargs):
         self.messages.append({"role": role, "content": content, "timestamp": time.time(), **kwargs})
 
-    def reset_history(self):
-        """Reset message history, keeping only the system message if present."""
-        system_messages = [msg for msg in self.messages if msg["role"] == "system"]
-        self.messages = system_messages[-1:] if system_messages else []
+    def reset_history(self, keep_system: bool = True):
+        """Reset message history, keeping only the system messages if keep_system is True."""
+        if keep_system:
+            self.messages = [msg for msg in self.messages if msg["role"] == "system"][-1:]
+        else:
+            self.messages = []
 
     def __repr__(self):
         return f"Model({self.model_name!r})"
