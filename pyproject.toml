@@ -21,4 +21,23 @@ all = [
     "google-genai>=0.1.0",
     "xai-sdk>=0.1.0",
 ]
-dev = ["pytest"]
+dev = ["pytest", "pytest-cov>=4.0.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.coverage.run]
+source = ["src/agenticblocks"]
+branch = true
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
