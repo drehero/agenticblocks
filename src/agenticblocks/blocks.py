@@ -175,14 +175,14 @@ class SelfRefine(Block):
         return response
 
 
-class ToolReasoning(Block):
-    """Tool-integrated reasoning block using strict JSON tool calls."""
+class ReAct(Block):
+    """ReAct-style tool-using block with strict JSON tool calls."""
 
     SYSTEM_TEMPLATE = Template(
         "You are a tool-using agent. You must respond with a single JSON object and nothing else.\n"
         "Use one of these formats:\n"
-        '- Tool call: {{"tool": "<name>", "kwargs": {{...}}}}\n'
-        '- Final answer: {{"final": "<answer>"}}\n'
+        '- Tool call: {{"tool": "<name>", "kwargs": {{...}}, "thought": "<optional>"}}\n'
+        '- Final answer: {{"final": "<answer>", "thought": "<optional>"}}\n'
         "Rules:\n"
         "- Use only the tools listed below.\n"
         "- If a tool fails, you will receive an error and can try again.\n"
@@ -255,7 +255,7 @@ class ToolReasoning(Block):
         tool_names = [getattr(t, "__name__", t.__class__.__name__) for t in self.tools]
         tools_repr = ", ".join(tool_names)
         return (
-            f"ToolReasoning({self.model!r}, tools=[{tools_repr}], "
+            f"ReAct({self.model!r}, tools=[{tools_repr}], "
             f"max_time={self.max_time}, max_steps={self.max_steps})"
         )
 
@@ -300,6 +300,8 @@ class ToolReasoning(Block):
                 try:
                     parsed = extract_json_obj(response)
                     if stop or "final" in parsed:
+                        if "thought" in parsed:
+                            return f"{parsed['thought']}\n{parsed['final']}".strip()
                         return str(parsed["final"])
 
                     if "tool" in parsed:

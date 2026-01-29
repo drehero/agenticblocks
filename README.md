@@ -96,7 +96,7 @@ def add(a, b):
     return a + b
 
 tools = [add]
-agent = ab.ToolReasoning(ab.Model(model_name), tools=tools, max_steps=5, max_time=30)
+agent = ab.ReAct(ab.Model(model_name), tools=tools, max_steps=5, max_time=30)
 agent("What is 12 + 30?")
 ```
 

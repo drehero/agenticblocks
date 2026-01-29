@@ -1,7 +1,7 @@
-"""Tests for ToolReasoning block."""
+"""Tests for ReAct block."""
 from __future__ import annotations
 
-from agenticblocks.blocks import ToolReasoning
+from agenticblocks.blocks import ReAct
 from agenticblocks.trace import trace
 
 
@@ -44,7 +44,7 @@ def test_invalid_json_retry_then_tool_call_and_final():
         ]
     )
 
-    block = ToolReasoning(model=model, tools=[add], max_time=None)
+    block = ReAct(model=model, tools=[add], max_time=None)
     result = block("Add two numbers.")
 
     assert result == "ok"
@@ -64,7 +64,7 @@ def test_tool_error_is_reported_to_model():
         ]
     )
 
-    block = ToolReasoning(model=model, tools=[boom], max_time=None)
+    block = ReAct(model=model, tools=[boom], max_time=None)
     result = block("Trigger error.")
 
     assert result == "handled"
@@ -77,7 +77,7 @@ def test_max_steps_caps_invalid_json_loop():
         return "ok"
 
     model = DummyModel(["nope", "nope", "nope"])
-    block = ToolReasoning(model=model, tools=[no_op], max_steps=2, max_time=None)
+    block = ReAct(model=model, tools=[no_op], max_steps=2, max_time=None)
     result = block("Keep trying.")
 
     assert result == "Unable to complete the task within the budget."
@@ -90,7 +90,7 @@ def test_tool_reasoning_traces_block():
         return "ok"
 
     model = DummyModel(['{"final":"ok"}'])
-    block = ToolReasoning(model=model, tools=[no_op])
+    block = ReAct(model=model, tools=[no_op])
 
     with trace() as t:
         result = block("Trace this.")
@@ -98,5 +98,5 @@ def test_tool_reasoning_traces_block():
     assert result == "ok"
     assert len(t.root_spans) == 1
     assert t.root_spans[0].kind == "block"
-    assert "ToolReasoning" in t.root_spans[0].name
+    assert "ReAct" in t.root_spans[0].name
     assert t.root_spans[0].output == "ok"
