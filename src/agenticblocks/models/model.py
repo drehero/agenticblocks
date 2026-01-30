@@ -8,10 +8,12 @@ import warnings
 from typing import Any, Literal
 
 import openai
+import httpx
 
 from agenticblocks.models.stats import GLOBAL_MODEL_STATS
-from agenticblocks.models.utils import apply_anthropic_cache_control
+from agenticblocks.models.utils import apply_anthropic_cache_control, format_openai_messages
 from agenticblocks.trace import span
+
 
 
 class Model:
@@ -278,28 +280,11 @@ class Model:
 
         For OpenRouter with Anthropic models, applies cache control when keep_history is enabled.
         """
-        formatted = [{"role": msg["role"], "content": msg["content"]} for msg in messages]
-
-        # Apply cache control for OpenRouter with Anthropic models
-        if self.keep_history and self._is_openrouter_anthropic_model():
-            # Build system blocks and non-system messages like Anthropic provider
-            system_messages = [msg["content"] for msg in formatted if msg["role"] == "system"]
-            system_blocks = None
-            if system_messages:
-                system_blocks = [{"type": "text", "text": system_messages[-1]}]
-            non_system = [msg for msg in formatted if msg["role"] != "system"]
-
-            # Apply cache control
-            system_blocks, non_system = apply_anthropic_cache_control(system_blocks, non_system)
-
-            # Reconstruct messages with cached system prompt
-            result = []
-            if system_blocks:
-                result.append({"role": "system", "content": system_blocks})
-            result.extend(non_system)
-            return result
-
-        return formatted
+        return format_openai_messages(
+            messages,
+            keep_history=self.keep_history,
+            apply_anthropic_cache=self._is_openrouter_anthropic_model(),
+        )
 
     def _is_openrouter_anthropic_model(self) -> bool:
         """Check if using OpenRouter with an Anthropic model."""
@@ -440,3 +425,139 @@ class Model:
             if block_text:
                 text_parts.append(block_text)
         return "".join(text_parts)
+
+
+class LocalModel:
+    """A local model wrapper for OpenAI-compatible runtimes like Ollama and vLLM."""
+
+    def __init__(
+        self,
+        model_name: str,
+        provider: Literal["ollama", "vllm"] = "ollama",
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        model_kwargs: dict[str, Any] | None = None,
+        system_prompt: str | None = None,
+        keep_history: bool = False,
+        timeout: float = 60.0,
+        client: httpx.Client | None = None,
+    ) -> None:
+        self.model_name = model_name
+        self.provider = provider
+        self.base_url = base_url or self._default_base_url(provider)
+        self.api_key = api_key or self._default_api_key(provider)
+        self.model_kwargs = model_kwargs or {}
+        self.keep_history = keep_history
+        self.messages: list[dict[str, Any]] = []
+        self.cost = 0.0
+        self.n_calls = 0
+
+        self._client = client or httpx.Client(timeout=timeout)
+        self._server_checked = False
+
+        if system_prompt is not None:
+            self.add_message("system", system_prompt)
+
+    def add_message(self, role: str, content: str, **kwargs: Any) -> None:
+        self.messages.append({"role": role, "content": content, **kwargs})
+
+    def reset_history(self, keep_system: bool = True) -> None:
+        if keep_system:
+            self.messages = [msg for msg in self.messages if msg["role"] == "system"][-1:]
+        else:
+            self.messages = []
+
+    def __repr__(self) -> str:
+        return f"LocalModel({self.model_name!r}, provider={self.provider!r})"
+
+    def __call__(self, prompt: str, **kwargs: Any) -> str:
+        with span(kind="model", name=repr(self), input=prompt, kwargs=dict(kwargs)) as sp:
+            self._ensure_server_available()
+            if self.keep_history:
+                self.add_message("user", prompt)
+                messages = self.messages
+            else:
+                messages = self.messages + [{"role": "user", "content": prompt}]
+
+            response = self._create_chat_completion(messages=messages, **kwargs)
+
+            self.n_calls += 1
+            GLOBAL_MODEL_STATS.add(0.0)
+
+            content = response["choices"][0]["message"]["content"] or ""
+
+            if self.keep_history:
+                self.add_message("assistant", content)
+
+            sp.output = content
+            return content
+
+    def _create_chat_completion(self, *, messages: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
+        formatted_messages = format_openai_messages(messages)
+        payload = {
+            "model": self.model_name,
+            "messages": formatted_messages,
+            **self.model_kwargs,
+            **kwargs,
+        }
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        url = self._chat_completions_url()
+        response = self._client.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        return response.json()
+
+    def _chat_completions_url(self) -> str:
+        base = self.base_url.rstrip("/")
+        return f"{base}/chat/completions"
+
+    def _ensure_server_available(self) -> None:
+        if self._server_checked:
+            return
+        url = self._health_check_url()
+        try:
+            response = self._client.get(url)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:  # noqa: BLE001
+            raise ConnectionError(
+                "Local model server is not reachable. "
+                "Start Ollama with: `ollama serve` and ensure the model is pulled "
+                f"with: `ollama run {self.model_name}`.\n"
+                f"Health check failed for: {url}"
+            ) from exc
+        self._server_checked = True
+
+    def _health_check_url(self) -> str:
+        base = self.base_url.rstrip("/")
+        if self.provider == "ollama":
+            root = base[:-3] if base.endswith("/v1") else base
+            return f"{root}/api/tags"
+        if self.provider == "vllm":
+            return f"{base}/models"
+        raise ValueError(f"Unsupported local provider: {self.provider}")
+
+    @staticmethod
+    def _default_base_url(provider: str) -> str:
+        env_url = os.getenv(f"{provider.upper()}_API_URL")
+        if env_url:
+            return env_url
+        if provider == "ollama":
+            return "http://localhost:11434/v1"
+        if provider == "vllm":
+            return "http://localhost:8000/v1"
+        raise ValueError(f"Unsupported local provider: {provider}")
+
+    @staticmethod
+    def _default_api_key(provider: str) -> str:
+        env_key = os.getenv(f"{provider.upper()}_API_KEY")
+        if env_key:
+            return env_key
+        if provider == "ollama":
+            return "ollama"
+        if provider == "vllm":
+            return "EMPTY"
+        raise ValueError(f"Unsupported local provider: {provider}")
+

@@ -28,6 +28,14 @@ model("How many r's are in strawberry?")
 
 agenticblocks supports all OpenAI API compatible providers (more coming soon).
 
+Local models (Ollama/vLLM) are supported via LocalModel:
+
+```python
+import agenticblocks as ab
+model = ab.LocalModel("llama3.1", provider="ollama")
+model("How many r's are in strawberry?")
+```
+
 ### Blocks
 
 A block defines how a model is called. For example a Chain of Thought (CoT) block might look something like this:
@@ -115,6 +123,7 @@ For more details on how to do this check out the [examples](examples/).
 - [ ] Add more built-in blocks and examples
 - [ ] Add documentation
 - [ ] Implement support for local models
+- [ ] Add streaming support
 - [ ] Implement optimizers and search
 - [ ] Implement tool use
 - [ ] Implement a way to share discovered blocks

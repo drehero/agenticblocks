@@ -2,6 +2,7 @@
 # Copyright (c) 2025 Kilian A. Lieret and Carlos E. Jimenez
 # Licensed under the MIT License
 import copy
+from typing import Any
 
 
 def apply_anthropic_cache_control(
@@ -65,3 +66,34 @@ def _add_cache_control_to_message(message: dict) -> None:
     elif isinstance(content, list) and content:
         # Add cache_control to the last content block
         content[-1]["cache_control"] = {"type": "ephemeral"}
+
+
+def format_openai_messages(
+    messages: list[dict[str, Any]],
+    *,
+    keep_history: bool = False,
+    apply_anthropic_cache: bool = False,
+) -> list[dict[str, Any]]:
+    """Format messages for OpenAI-compatible APIs.
+
+    When apply_anthropic_cache is True and keep_history is enabled, applies
+    Anthropic cache control to system and non-system messages.
+    """
+    formatted = [{"role": msg["role"], "content": msg["content"]} for msg in messages]
+
+    if keep_history and apply_anthropic_cache:
+        system_messages = [msg["content"] for msg in formatted if msg["role"] == "system"]
+        system_blocks = None
+        if system_messages:
+            system_blocks = [{"type": "text", "text": system_messages[-1]}]
+        non_system = [msg for msg in formatted if msg["role"] != "system"]
+
+        system_blocks, non_system = apply_anthropic_cache_control(system_blocks, non_system)
+
+        result = []
+        if system_blocks:
+            result.append({"role": "system", "content": system_blocks})
+        result.extend(non_system)
+        return result
+
+    return formatted
