@@ -522,10 +522,21 @@ class LocalModel:
             response = self._client.get(url)
             response.raise_for_status()
         except httpx.HTTPError as exc:  # noqa: BLE001
+            if self.provider == "ollama":
+                hint = (
+                    "Start Ollama with: `ollama serve` and ensure the model is pulled "
+                    f"with: `ollama run {self.model_name}`."
+                )
+            elif self.provider == "vllm":
+                hint = (
+                    "Start vLLM's OpenAI-compatible server, e.g.: "
+                    f"`python -m vllm.entrypoints.openai.api_server --model {self.model_name}`."
+                )
+            else:
+                hint = "Start your local model server and verify the base URL."
             raise ConnectionError(
                 "Local model server is not reachable. "
-                "Start Ollama with: `ollama serve` and ensure the model is pulled "
-                f"with: `ollama run {self.model_name}`.\n"
+                f"{hint}\n"
                 f"Health check failed for: {url}"
             ) from exc
         self._server_checked = True
@@ -560,4 +571,3 @@ class LocalModel:
         if provider == "vllm":
             return "EMPTY"
         raise ValueError(f"Unsupported local provider: {provider}")
-

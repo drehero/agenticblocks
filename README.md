@@ -126,7 +126,6 @@ For more details on how to do this check out the [examples](examples/).
 - [ ] Add streaming support
 - [ ] Implement optimizers and search
 - [ ] Implement tool use
-- [ ] Implement a way to share discovered blocks
 
 
 ## Acknowledgments
