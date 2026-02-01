@@ -80,7 +80,7 @@ class SelfConsistency(Block):
         block: Callable[..., str],
         n: int = 5,
         temperature: float = 0.7,
-        aggregator=None,
+        aggregator: Callable[[str], str] | None = None,
         aggregator_template: str = "{responses}\nGiven the responses above. Output the most common answer.",
     ):
         self.block = block
@@ -129,7 +129,7 @@ class MultiAgentDebate(Block):
         self,
         agents: list[Callable[..., str]],
         rounds: int = 2,
-        moderator=None,
+        moderator: Callable[[str], str] | None = None,
         debate_template: str = "Question: {prompt}\n\nPrevious responses:\n{history}\n\nProvide your response, considering the perspectives above:",
         final_template: str = "Question: {prompt}\n\nDebate summary:\n{debate_history}\n\nBased on this debate, provide the final answer:",
     ):

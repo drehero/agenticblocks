@@ -120,7 +120,7 @@ class Model:
     def __repr__(self):
         return f"Model({self.model_name!r})"
 
-    def __call__(self, prompt: str, **kwargs) -> str:
+    def __call__(self, prompt: str, **kwargs: Any) -> str:
         """Invoke the model with a prompt.
 
         Args:
