@@ -8,7 +8,7 @@ class TestMultiAgentDebateBlock:
     """Tests for MultiAgentDebate rounds, history, and moderator."""
 
     def test_initial_round_all_agents_respond(self):
-        """All agents should respond in initial round."""
+        """All blocks should respond in initial round."""
         agent1 = MagicMock(return_value="Agent 1 initial")
         agent2 = MagicMock(return_value="Agent 2 initial")
         agent3 = MagicMock(return_value="Agent 3 initial")
@@ -16,7 +16,7 @@ class TestMultiAgentDebateBlock:
         from agenticblocks.blocks import MultiAgentDebate
 
         debate = MultiAgentDebate(
-            agents=[agent1, agent2, agent3],
+            blocks=[agent1, agent2, agent3],
             rounds=0,  # Only initial round, no debate rounds
         )
 
@@ -37,7 +37,7 @@ class TestMultiAgentDebateBlock:
 
         from agenticblocks.blocks import MultiAgentDebate
 
-        debate = MultiAgentDebate(agents=[agent1, agent2], rounds=2)
+        debate = MultiAgentDebate(blocks=[agent1, agent2], rounds=2)
         debate(prompt="test")
 
         # Initial round: 2 calls (one per agent)
@@ -56,7 +56,7 @@ class TestMultiAgentDebateBlock:
 
         from agenticblocks.blocks import MultiAgentDebate
 
-        debate = MultiAgentDebate(agents=[agent1, agent2], rounds=1)
+        debate = MultiAgentDebate(blocks=[agent1, agent2], rounds=1)
         debate(prompt="What is 2+2?")
 
         # Check that debate round calls include history
@@ -76,7 +76,7 @@ class TestMultiAgentDebateBlock:
         from agenticblocks.blocks import MultiAgentDebate
 
         debate = MultiAgentDebate(
-            agents=[agent1, agent2], rounds=1, moderator=moderator
+            blocks=[agent1, agent2], rounds=1, moderator=moderator
         )
 
         result = debate(prompt="test")
@@ -91,7 +91,7 @@ class TestMultiAgentDebateBlock:
 
         from agenticblocks.blocks import MultiAgentDebate
 
-        debate = MultiAgentDebate(agents=[agent1, agent2], rounds=1, moderator=None)
+        debate = MultiAgentDebate(blocks=[agent1, agent2], rounds=1, moderator=None)
 
         result = debate(prompt="test")
 
@@ -106,7 +106,7 @@ class TestMultiAgentDebateBlock:
 
         custom_template = "Topic: {prompt}\n\nHistory:\n{history}\n\nYour turn:"
         debate = MultiAgentDebate(
-            agents=[agent1, agent2], rounds=1, debate_template=custom_template
+            blocks=[agent1, agent2], rounds=1, debate_template=custom_template
         )
         debate(prompt="my topic")
 
@@ -124,7 +124,7 @@ class TestMultiAgentDebateBlock:
 
         custom_final = "Question: {prompt}\n\nDebate:\n{debate_history}\n\nSummarize:"
         debate = MultiAgentDebate(
-            agents=[agent1],
+            blocks=[agent1],
             rounds=0,
             moderator=moderator,
             final_template=custom_final,
@@ -142,7 +142,7 @@ class TestMultiAgentDebateBlock:
 
         from agenticblocks.blocks import MultiAgentDebate
 
-        debate = MultiAgentDebate(agents=[agent1, agent2], rounds=0)
+        debate = MultiAgentDebate(blocks=[agent1, agent2], rounds=0)
         debate(prompt="test", temperature=0.5)
 
         for agent_call in agent1.call_args_list:
@@ -153,13 +153,13 @@ class TestMultiAgentDebateRepr:
     """Tests for MultiAgentDebate __repr__."""
 
     def test_repr_format(self):
-        """__repr__ should show agents and rounds."""
+        """__repr__ should show blocks and rounds."""
         agent1 = MagicMock()
         agent2 = MagicMock()
 
         from agenticblocks.blocks import MultiAgentDebate
 
-        debate = MultiAgentDebate(agents=[agent1, agent2], rounds=3)
+        debate = MultiAgentDebate(blocks=[agent1, agent2], rounds=3)
 
         assert "MultiAgentDebate" in repr(debate)
         assert "rounds=3" in repr(debate)
