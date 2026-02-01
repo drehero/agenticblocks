@@ -17,27 +17,38 @@ from agenticblocks.trace import span
 
 
 class Model:
-    f"""A wrapper for OpenAI-compatible API models.
+    """OpenAI-compatible model wrapper with optional history and tracing.
 
     Takes text as input and outputs text. Handles conversation history,
-    cost tracking (when available), and automatic cache control.
+    provider inference, optional web search, and cost tracking when the
+    provider reports it.
 
     Args:
-        model_name: The name/ID of the model to use.
+        model_name: Model name or ID to use.
         model_kwargs: Default kwargs passed to the API on each call.
         system_prompt: Optional system prompt to prepend to conversations.
         keep_history: If True, maintains conversation history across calls.
             When enabled, provider-specific caching is automatically applied.
-        web_search: If True, enables web search. For OpenRouter, toggles the
-            ":online" model suffix. For other providers, enables their
-            web search tool where supported.
-        provider: The provider to use. If None or api_url is provided, the provider is inferred from the api_url otherwise it behaves like openai.
-            Supported providers: "openrouter", "openai", "google", "anthropic", "xai".
-        api_url: API base URL. Defaults to the provider's base URL, {{PROVIDER_NAME}}_API_URL env var or the OPENAI_API_URL env var.
-        api_key: API key. Defaults to {{PROVIDER_NAME}}_API_KEY env var or OPENAI_API_KEY env var.
+        web_search: If True, enables provider web search when available. For
+            OpenRouter, toggles the ":online" model suffix.
+        provider: Provider to use. If None, inferred from `api_url` or defaults
+            to "openai". Supported providers: "openrouter", "openai", "google",
+            "anthropic", "xai".
+        api_url: API base URL. Defaults to provider base URL, or
+            `{PROVIDER}_API_URL`, or `OPENAI_API_URL` for OpenAI.
+        api_key: API key. Defaults to `{PROVIDER}_API_KEY` or `OPENAI_API_KEY`
+            for OpenAI.
         cost_tracking: Reserved for compatibility. Cost tracking only uses
             provider-reported values when available; otherwise cost=0.0 and a
             one-time warning is emitted.
+
+    Raises:
+        ValueError: If an API key is missing or the provider is unsupported.
+
+    Example:
+        >>> model = Model("openai/gpt-4o-mini")
+        >>> model("Hello")
+        '...'
     """
 
     def __init__(
@@ -92,10 +103,15 @@ class Model:
 
 
     def add_message(self, role: str, content: str, **kwargs):
+        """Append a message to the internal history."""
         self.messages.append({"role": role, "content": content, "timestamp": time.time(), **kwargs})
 
     def reset_history(self, keep_system: bool = True):
-        """Reset message history, keeping only the system messages if keep_system is True."""
+        """Reset message history.
+
+        Args:
+            keep_system: If True, keeps the last system message.
+        """
         if keep_system:
             self.messages = [msg for msg in self.messages if msg["role"] == "system"][-1:]
         else:
@@ -105,6 +121,15 @@ class Model:
         return f"Model({self.model_name!r})"
 
     def __call__(self, prompt: str, **kwargs) -> str:
+        """Invoke the model with a prompt.
+
+        Args:
+            prompt: Input prompt text.
+            **kwargs: Provider-specific request parameters.
+
+        Returns:
+            The model's response text.
+        """
         with span(kind="model", name=repr(self), input=prompt, kwargs=dict(kwargs)) as sp:
             if self.keep_history:
                 self.add_message("user", prompt)
@@ -428,7 +453,27 @@ class Model:
 
 
 class LocalModel:
-    """A local model wrapper for OpenAI-compatible runtimes like Ollama and vLLM."""
+    """Local model wrapper for OpenAI-compatible runtimes (Ollama, vLLM).
+
+    Args:
+        model_name: Local model name or ID.
+        provider: Runtime provider ("ollama" or "vllm").
+        base_url: Base URL for the local server.
+        api_key: Optional API key for the local server.
+        model_kwargs: Default kwargs passed to the API on each call.
+        system_prompt: Optional system prompt to prepend to conversations.
+        keep_history: If True, maintains conversation history across calls.
+        timeout: HTTP client timeout in seconds.
+        client: Optional httpx.Client instance.
+
+    Raises:
+        ConnectionError: If the local server is unreachable.
+
+    Example:
+        >>> local = LocalModel("llama3.1", provider="ollama")
+        >>> local("Hello")
+        '...'
+    """
 
     def __init__(
         self,
@@ -460,9 +505,15 @@ class LocalModel:
             self.add_message("system", system_prompt)
 
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
+        """Append a message to the internal history."""
         self.messages.append({"role": role, "content": content, **kwargs})
 
     def reset_history(self, keep_system: bool = True) -> None:
+        """Reset message history.
+
+        Args:
+            keep_system: If True, keeps the last system message.
+        """
         if keep_system:
             self.messages = [msg for msg in self.messages if msg["role"] == "system"][-1:]
         else:
@@ -472,6 +523,15 @@ class LocalModel:
         return f"LocalModel({self.model_name!r}, provider={self.provider!r})"
 
     def __call__(self, prompt: str, **kwargs: Any) -> str:
+        """Invoke the local model with a prompt.
+
+        Args:
+            prompt: Input prompt text.
+            **kwargs: Provider-specific request parameters.
+
+        Returns:
+            The model's response text.
+        """
         with span(kind="model", name=repr(self), input=prompt, kwargs=dict(kwargs)) as sp:
             self._ensure_server_available()
             if self.keep_history:
