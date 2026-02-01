@@ -17,7 +17,7 @@
 
 ## Tests
 - Run all tests: `pytest`
-- Skip slow tests: `pytest -m "not slow"`
+- Always run tests before commiting
 
 ## Repo layout
 - `src/agenticblocks/`: core package code
