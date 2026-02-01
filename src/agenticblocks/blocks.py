@@ -12,16 +12,7 @@ from agenticblocks.utils import extract_json_obj
 
 
 class IO(Block):
-    """Simple pass-through block that calls a model directly.
-
-    Args:
-        model: A model name or Model instance.
-
-    Example:
-        >>> io = IO("openai/gpt-4o-mini")
-        >>> io("Hello")
-        '...'
-    """
+    """IO block - simple pass-through to the model."""
 
     def __init__(self, model: Model | str):
         self.model = Model(model) if isinstance(model, str) else model
@@ -34,17 +25,7 @@ class IO(Block):
 
 
 class ChainOfThought(Block):
-    """Prompt a model to reason step by step.
-
-    Args:
-        model: A model name or Model instance.
-        template: Prompt template with a `{prompt}` placeholder.
-
-    Example:
-        >>> cot = ChainOfThought("openai/gpt-4o-mini")
-        >>> cot("How many r's are in strawberry?")
-        '...'
-    """
+    """Chain of Thought block - prompts the model to think step by step."""
 
     def __init__(self, model: Model | str, template: str = "{prompt}\nLet's think step by step."):
         self.model = Model(model) if isinstance(model, str) else model
@@ -58,29 +39,14 @@ class ChainOfThought(Block):
 
 
 class SelfConsistency(Block):
-    """Run a block N times and optionally aggregate the responses.
-
-    If `aggregator` is None, returns the concatenated responses.
-
-    Args:
-        block: A callable block or function to invoke.
-        n: Number of runs.
-        temperature: Temperature passed to each run.
-        aggregator: Optional callable that combines responses.
-        aggregator_template: Template used when calling the aggregator.
-
-    Example:
-        >>> sc = SelfConsistency(ChainOfThought("openai/gpt-4o-mini"), n=3)
-        >>> sc("Question?")
-        '...'
-    """
+    """Self-Consistency block - runs a block N times and aggregates responses."""
 
     def __init__(
         self,
         block: Callable[..., str],
         n: int = 5,
         temperature: float = 0.7,
-        aggregator: Callable[[str], str] | None = None,
+        aggregator=None,
         aggregator_template: str = "{responses}\nGiven the responses above. Output the most common answer.",
     ):
         self.block = block
@@ -107,48 +73,32 @@ class SelfConsistency(Block):
 
 
 class MultiAgentDebate(Block):
-    """Run a multi-agent debate and synthesize a final answer.
-
-    Each agent responds, then debates for multiple rounds. A moderator
-    (or the final agent if none is provided) synthesizes the final answer.
-
-    Args:
-        agents: List of callable agents.
-        rounds: Number of debate rounds after the initial responses.
-        moderator: Optional callable to synthesize the final answer.
-        debate_template: Template for debate rounds.
-        final_template: Template for final synthesis.
-
-    Example:
-        >>> debate = MultiAgentDebate([IO("openai/gpt-4o-mini")], rounds=1)
-        >>> debate("Question?")
-        '...'
-    """
+    """Multi-Agent Debate block - multiple blocks debate to reach a consensus."""
 
     def __init__(
         self,
-        agents: list[Callable[..., str]],
+        blocks: list[Callable[..., str]],
         rounds: int = 2,
-        moderator: Callable[[str], str] | None = None,
+        moderator=None,
         debate_template: str = "Question: {prompt}\n\nPrevious responses:\n{history}\n\nProvide your response, considering the perspectives above:",
         final_template: str = "Question: {prompt}\n\nDebate summary:\n{debate_history}\n\nBased on this debate, provide the final answer:",
     ):
-        self.agents = agents
+        self.blocks = blocks
         self.rounds = rounds
         self.moderator = moderator
         self.debate_template = debate_template
         self.final_template = final_template
 
     def __repr__(self):
-        return f"MultiAgentDebate({self.agents!r}, rounds={self.rounds})"
+        return f"MultiAgentDebate({self.blocks!r}, rounds={self.rounds})"
 
     def forward(self, prompt: str, **kwargs: Any) -> str:
         all_results = []
         debate_history = []
 
-        # Initial round - each agent responds to the prompt
-        for i, agent in enumerate(self.agents):
-            result = agent(prompt, **kwargs)
+        # Initial round - each block responds to the prompt
+        for i, block in enumerate(self.blocks):
+            result = block(prompt, **kwargs)
             all_results.append({"agent": i, "round": 0, "result": result})
             debate_history.append(f"Agent {i + 1}: {result}")
 
@@ -157,8 +107,8 @@ class MultiAgentDebate(Block):
             history_text = "\n\n".join(debate_history)
             round_responses = []
 
-            for i, agent in enumerate(self.agents):
-                result = agent(
+            for i, block in enumerate(self.blocks):
+                result = block(
                     self.debate_template.format(prompt=prompt, history=history_text),
                     **kwargs,
                 )
@@ -176,8 +126,8 @@ class MultiAgentDebate(Block):
                 **kwargs,
             )
         else:
-            # Use last agent as moderator if none provided
-            final_result = self.agents[-1](
+            # Use last block as moderator if none provided
+            final_result = self.blocks[-1](
                 self.final_template.format(prompt=prompt, debate_history=full_history),
                 **kwargs,
             )
@@ -186,19 +136,7 @@ class MultiAgentDebate(Block):
 
 
 class SelfRefine(Block):
-    """Iteratively critique and refine a response.
-
-    Args:
-        model: A model name or Model instance.
-        iterations: Number of critique/refine cycles.
-        critique_template: Template for critique prompts.
-        refine_template: Template for refinement prompts.
-
-    Example:
-        >>> refine = SelfRefine("openai/gpt-4o-mini", iterations=2)
-        >>> refine("Explain recursion.")
-        '...'
-    """
+    """Self-Refine block - iteratively critiques and improves responses."""
 
     def __init__(
         self,
@@ -238,26 +176,7 @@ class SelfRefine(Block):
 
 
 class ReAct(Block):
-    """Tool-using block that enforces JSON tool calls.
-
-    Tools must be callables with docstrings; their signatures and docstrings
-    are surfaced to the model. The model is instructed to return either a
-    tool call JSON object or a final JSON response.
-
-    Args:
-        model: A model name or Model instance for reasoning.
-        tools: A callable or list of callables exposed as tools.
-        max_time: Optional time budget in seconds.
-        max_steps: Optional step budget for tool-calling iterations.
-
-    Example:
-        >>> def add(a, b):  # doctest: +SKIP
-        ...     "Add two numbers."
-        ...     return a + b
-        >>> agent = ReAct("openai/gpt-4o-mini", tools=[add], max_steps=3)
-        >>> agent("What is 2 + 2?")
-        '4'
-    """
+    """ReAct-style tool-using block with strict JSON tool calls."""
 
     SYSTEM_TEMPLATE = Template(
         "You are a tool-using agent. You must respond with a single JSON object and nothing else.\n"
