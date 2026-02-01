@@ -16,6 +16,13 @@ pip install "git+https://github.com/drehero/agenticblocks.git#egg=agenticblocks[
 pip install "git+https://github.com/drehero/agenticblocks.git#egg=agenticblocks[all]"         # All providers
 ```
 
+## Documentation
+
+```bash
+pip install -e ".[docs]"
+mkdocs serve
+```
+
 ### Models
 
 A model takes text as input and outputs text:

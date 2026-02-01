@@ -13,6 +13,20 @@ SpanKind = Literal["block", "model"]
 
 @dataclass
 class TraceSpan:
+    """A single traced span for a block or model call.
+
+    Attributes:
+        id: Unique span ID.
+        name: Span name (typically repr of the block/model).
+        kind: "block" or "model".
+        start_time: Unix timestamp at start.
+        end_time: Unix timestamp at end (None if still running).
+        input: Optional input prompt.
+        output: Optional output text.
+        kwargs: Optional call kwargs captured at start.
+        error: Optional error string if an exception occurred.
+        children: Nested spans.
+    """
     id: str
     name: str
     kind: SpanKind
@@ -31,6 +45,14 @@ class TraceSpan:
         return self.end_time - self.start_time
 
     def to_dict(self, *, keys: List[str] | None = None) -> Dict[str, Any]:
+        """Serialize the span to a dict.
+
+        Args:
+            keys: Optional list of keys to include (children are always included).
+
+        Returns:
+            A dict representation of the span.
+        """
         payload = {
             "id": self.id,
             "name": self.name,
@@ -55,16 +77,27 @@ class TraceSpan:
 
 @dataclass
 class Trace:
+    """A collection of root spans captured within a trace context."""
     root_spans: List[TraceSpan] = field(default_factory=list)
 
     def to_dict(self, *, keys: List[str] | None = None) -> Dict[str, Any]:
+        """Serialize the trace to a dict.
+
+        Args:
+            keys: Optional list of keys to include on spans.
+
+        Returns:
+            A dict with a single "spans" key.
+        """
         payload = {"spans": [s.to_dict(keys=keys) for s in self.root_spans]}
         return payload
 
     def to_json(self, *, indent: int = 2, keys: List[str] | None = None) -> str:
+        """Serialize the trace to JSON."""
         return json.dumps(self.to_dict(keys=keys), indent=indent, ensure_ascii=False)
 
     def pretty(self) -> str:
+        """Render a human-readable tree of spans."""
         lines: List[str] = []
 
         def _fmt(span: TraceSpan, depth: int) -> None:
@@ -91,6 +124,7 @@ _span_stack: contextvars.ContextVar[List[TraceSpan]] = contextvars.ContextVar("a
 
 
 def get_active_trace() -> Optional[Trace]:
+    """Return the active trace for the current context, if any."""
     return _active_trace.get()
 
 
@@ -155,7 +189,15 @@ def span(
 
 @contextlib.contextmanager
 def trace() -> Iterator[Trace]:
-    """Opt-in tracing context. Collects nested spans for block/model calls."""
+    """Opt-in tracing context for block/model calls.
+
+    Example:
+        >>> with trace() as t:
+        ...     model = Model("openai/gpt-4o-mini")  # doctest: +SKIP
+        ...     model("Hello")  # doctest: +SKIP
+        >>> isinstance(t, Trace)
+        True
+    """
     t = Trace()
     token_trace = _active_trace.set(t)
     token_stack = _span_stack.set([])
