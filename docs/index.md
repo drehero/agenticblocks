@@ -20,12 +20,17 @@ cot = ab.ChainOfThought("openai/gpt-4o-mini")
 cot("How many r's are in strawberry?")
 ```
 
-## Local models
+## Local runtimes
 
 ```python
 import agenticblocks as ab
 
-local = ab.LocalModel("llama3.1", provider="ollama")
+local = ab.Model(
+    "llama3.1",
+    provider="openai",
+    api_url="http://localhost:11434/v1",  # Ollama example
+    api_key="ollama",
+)
 local("How many r's are in strawberry?")
 ```
 

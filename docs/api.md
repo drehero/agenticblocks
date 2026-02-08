@@ -11,7 +11,6 @@
 ## Models
 
 ::: agenticblocks.models.model.Model
-::: agenticblocks.models.model.LocalModel
 
 ## Tracing
 
