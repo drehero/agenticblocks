@@ -104,22 +104,6 @@ mad("How many r's are in strawberry?")
 
 Using built in and custom blocks we can define powerful reasoning flows which produce better solutions than standard LLM calls.
 
-### Tool-Integrated Reasoning
-
-You can also add arbitrary Python tools (functions or classes) with a tool-aware reasoning block:
-
-```python
-import agenticblocks as ab
-
-def add(a, b):
-    "Add two numbers."
-    return a + b
-
-tools = [add]
-agent = ab.ReAct(ab.Model(model_name), tools=tools, max_steps=5, max_time=30)
-agent("What is 12 + 30?")
-```
-
 ### But why stop here?
 
 agenticblocks makes building workflows so simple we can use it to create an agent which uses the framework to build its own solution to a task.
@@ -136,7 +120,6 @@ For more details on how to do this check out the [examples](examples/).
 - [ ] Add documentation
 - [ ] Add streaming support
 - [ ] Implement optimizers and search
-- [ ] Implement tool use
 
 
 ## Acknowledgments
