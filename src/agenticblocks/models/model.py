@@ -6,6 +6,7 @@ import time
 import uuid
 import warnings
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 import openai
 
@@ -86,6 +87,7 @@ class Model:
             raise ValueError(f"No API key provided for provider {self.provider}. Please set the {self.provider.upper()}_API_KEY environment variable or pass it as the api_key argument.")
 
         self._init_client(base_url=base_url, api_key=api_key)
+        self.base_url = base_url
 
         self.model_kwargs = model_kwargs
         self.cost_tracking = cost_tracking
@@ -326,9 +328,22 @@ class Model:
         return model_name
 
     def _apply_openai_web_search_kwargs(self, merged_kwargs: dict[str, Any]) -> dict[str, Any]:
-        if not self.web_search or self.provider == "openrouter":
+        if not self.web_search or self.provider != "openai":
             return merged_kwargs
+        if "web_search_options" in merged_kwargs:
+            return merged_kwargs
+        if not self._is_official_openai_base_url():
+            return merged_kwargs
+        merged_kwargs["web_search_options"] = {}
         return merged_kwargs
+
+    def _is_official_openai_base_url(self) -> bool:
+        if not self.base_url:
+            return True
+        host = urlparse(self.base_url).hostname
+        if not host:
+            return False
+        return host == "api.openai.com" or host.endswith(".openai.com")
 
     def _apply_xai_web_search_kwargs(self, merged_kwargs: dict[str, Any]) -> dict[str, Any]:
         if not self.web_search:

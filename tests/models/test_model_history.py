@@ -247,3 +247,75 @@ class TestModelCallCounting:
             model("Hello")
 
         assert model.cost == 0.0
+
+
+class TestOpenAIWebSearch:
+    """Tests for OpenAI web search request wiring."""
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("openai.OpenAI")
+    def test_web_search_options_added_for_openai_api(self, mock_openai_class):
+        """web_search=True should add web_search_options for OpenAI API calls."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.to_dict.return_value = {
+            "choices": [{"message": {"content": "response"}}],
+            "usage": {"cost": 0.01},
+        }
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_openai_class.return_value = mock_client
+
+        from agenticblocks.models import Model
+
+        model = Model(model_name="gpt-4", provider="openai", web_search=True)
+        model("Hello")
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs.get("web_search_options") == {}
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("openai.OpenAI")
+    def test_web_search_options_not_added_for_non_openai_base_url(self, mock_openai_class):
+        """Do not add OpenAI-only web search options for custom OpenAI-compatible endpoints."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.to_dict.return_value = {
+            "choices": [{"message": {"content": "response"}}],
+            "usage": {"cost": 0.01},
+        }
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_openai_class.return_value = mock_client
+
+        from agenticblocks.models import Model
+
+        model = Model(
+            model_name="gpt-4",
+            provider="openai",
+            api_url="http://localhost:11434/v1",
+            web_search=True,
+        )
+        model("Hello")
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert "web_search_options" not in call_kwargs
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("openai.OpenAI")
+    def test_web_search_options_preserves_explicit_values(self, mock_openai_class):
+        """Explicit web_search_options should be respected."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.to_dict.return_value = {
+            "choices": [{"message": {"content": "response"}}],
+            "usage": {"cost": 0.01},
+        }
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_openai_class.return_value = mock_client
+
+        from agenticblocks.models import Model
+
+        model = Model(model_name="gpt-4", provider="openai", web_search=True)
+        model("Hello", web_search_options={"search_context_size": "high"})
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs.get("web_search_options") == {"search_context_size": "high"}
