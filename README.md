@@ -34,12 +34,17 @@ model("How many r's are in strawberry?")
 ```
 
 agenticblocks supports all OpenAI API compatible providers (more coming soon).
-
-Local models (Ollama/vLLM) are supported via LocalModel:
+Local runtimes such as Ollama and vLLM can be used via the OpenAI-compatible API:
 
 ```python
 import agenticblocks as ab
-model = ab.LocalModel("llama3.1", provider="ollama")
+
+model = ab.Model(
+    "llama3.1",
+    provider="openai",
+    api_url="http://localhost:11434/v1",  # Ollama example
+    api_key="ollama",
+)
 model("How many r's are in strawberry?")
 ```
 
@@ -129,7 +134,6 @@ For more details on how to do this check out the [examples](examples/).
 - [ ] Create PyPI package (v0)
 - [ ] Add more built-in blocks and examples
 - [ ] Add documentation
-- [ ] Implement support for local models
 - [ ] Add streaming support
 - [ ] Implement optimizers and search
 - [ ] Implement tool use
