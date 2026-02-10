@@ -79,7 +79,14 @@ def format_openai_messages(
     When apply_anthropic_cache is True and keep_history is enabled, applies
     Anthropic cache control to system and non-system messages.
     """
-    formatted = [{"role": msg["role"], "content": msg["content"]} for msg in messages]
+    formatted: list[dict[str, Any]] = []
+    for msg in messages:
+        payload = {"role": msg["role"], "content": msg.get("content", "")}
+        # Preserve OpenAI tool-calling fields when present.
+        for key in ("tool_calls", "tool_call_id", "name"):
+            if key in msg:
+                payload[key] = msg[key]
+        formatted.append(payload)
 
     if keep_history and apply_anthropic_cache:
         system_messages = [msg["content"] for msg in formatted if msg["role"] == "system"]
