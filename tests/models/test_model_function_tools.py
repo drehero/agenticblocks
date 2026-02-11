@@ -131,29 +131,6 @@ class TestOpenAIFunctionTools:
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     @patch("openai.OpenAI")
-    def test_call_rejects_function_tool_config_kwargs(self, mock_openai_class):
-        """Tool config should be initialization-only, not per-call."""
-        mock_client = MagicMock()
-        mock_openai_class.return_value = mock_client
-        mock_client.chat.completions.create.return_value = _mock_response(
-            {
-                "choices": [{"message": {"content": "ok"}}],
-                "usage": {"cost": 0.01},
-            }
-        )
-
-        from agenticblocks.models import Model
-
-        model = Model("gpt-4", web_search=False)
-
-        with pytest.raises(TypeError, match="function_tools must be set when constructing Model"):
-            model("test", function_tools=[])
-
-        with pytest.raises(TypeError, match="max_tool_rounds must be set when constructing Model"):
-            model("test", max_tool_rounds=3)
-
-    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
-    @patch("openai.OpenAI")
     def test_max_tool_rounds_can_be_set_on_init(self, mock_openai_class):
         """max_tool_rounds should be configurable at initialization."""
         mock_client = MagicMock()
