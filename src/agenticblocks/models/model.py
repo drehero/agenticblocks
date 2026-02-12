@@ -43,7 +43,7 @@ class Model:
         tools: Optional list of Python callables or Tool objects
             available for OpenAI function-calling.
         max_tool_rounds: Maximum number of assistant->tool exchange rounds
-            before the function loop exits.
+            before the function loop exits. If None, no round limit is applied.
         cost_tracking: Reserved for compatibility. Cost tracking only uses
             provider-reported values when available; otherwise cost=0.0 and a
             one-time warning is emitted.
@@ -68,7 +68,7 @@ class Model:
             api_url: str | None = None,
             api_key: str | None = None,
             tools: list[Tool | Callable[..., Any]] | None = None,
-            max_tool_rounds: int = 8,
+            max_tool_rounds: int | None = None,
             cost_tracking: Literal["default", "ignore_errors"] = "default",
         ) -> None:
         self.model_name = model_name
@@ -101,7 +101,7 @@ class Model:
         self.cost_tracking = cost_tracking
         self.tools = normalize_function_tools(tools)
         self.max_tool_rounds = max_tool_rounds
-        if self.max_tool_rounds < 1:
+        if self.max_tool_rounds is not None and self.max_tool_rounds < 1:
             raise ValueError("max_tool_rounds must be >= 1.")
         # Generate a unique conversation ID for xAI caching
         self._xai_conversation_id = str(uuid.uuid4())
@@ -214,7 +214,7 @@ class Model:
         *,
         messages: list[dict[str, Any]],
         function_tools: list[Tool],
-        max_tool_rounds: int,
+        max_tool_rounds: int | None,
         **kwargs: Any,
     ) -> tuple[str, float]:
         tool_map = {tool.name: tool for tool in function_tools}
@@ -248,7 +248,7 @@ class Model:
                 return assistant_content, total_cost
 
             round_count += 1
-            if round_count > max_tool_rounds:
+            if max_tool_rounds is not None and round_count > max_tool_rounds:
                 warnings.warn(
                     "Function tool loop reached max_tool_rounds; returning latest assistant text.",
                     stacklevel=2,

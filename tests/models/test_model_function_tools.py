@@ -316,3 +316,73 @@ class TestOpenAIFunctionTools:
 
         with pytest.raises(ValueError, match="max_tool_rounds must be >= 1"):
             Model("gpt-4", max_tool_rounds=0)
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("openai.OpenAI")
+    def test_default_max_tool_rounds_is_unbounded(self, mock_openai_class):
+        """With default max_tool_rounds=None, tool loop should continue until final text."""
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_client.chat.completions.create.side_effect = [
+            _mock_response(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "",
+                                "tool_calls": [
+                                    {
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "echo_value",
+                                            "arguments": "{\"value\": 1}",
+                                        },
+                                    }
+                                ],
+                            }
+                        }
+                    ],
+                    "usage": {"cost": 0.01},
+                }
+            ),
+            _mock_response(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "",
+                                "tool_calls": [
+                                    {
+                                        "id": "call_2",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "echo_value",
+                                            "arguments": "{\"value\": 2}",
+                                        },
+                                    }
+                                ],
+                            }
+                        }
+                    ],
+                    "usage": {"cost": 0.01},
+                }
+            ),
+            _mock_response(
+                {
+                    "choices": [{"message": {"content": "done"}}],
+                    "usage": {"cost": 0.01},
+                }
+            ),
+        ]
+
+        from agenticblocks.models import Model
+
+        def echo_value(value: int) -> int:
+            return value
+
+        model = Model("gpt-4", tools=[echo_value], web_search=False)
+        result = model("loop")
+
+        assert result == "done"
+        assert mock_client.chat.completions.create.call_count == 3
