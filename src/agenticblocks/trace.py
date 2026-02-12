@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterator, List, Literal, Optional
 
-SpanKind = Literal["block", "model"]
+SpanKind = Literal["block", "model", "tool"]
 
 
 @dataclass
@@ -18,7 +18,7 @@ class TraceSpan:
     Attributes:
         id: Unique span ID.
         name: Span name (typically repr of the block/model).
-        kind: "block" or "model".
+        kind: "block", "model", or "tool".
         start_time: Unix timestamp at start.
         end_time: Unix timestamp at end (None if still running).
         input: Optional input prompt.

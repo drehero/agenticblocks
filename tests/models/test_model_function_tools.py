@@ -183,6 +183,7 @@ class TestOpenAIFunctionTools:
         tool_spans = [child for child in model_span.children if child.name == "Tool(add_numbers)"]
         assert len(tool_spans) == 1
         tool_span = tool_spans[0]
+        assert tool_span.kind == "tool"
         assert tool_span.input == "{\"a\": 1, \"b\": 2}"
         assert tool_span.output == "3"
 

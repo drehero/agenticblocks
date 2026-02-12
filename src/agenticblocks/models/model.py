@@ -291,7 +291,7 @@ class Model:
         trace_kwargs = {"tool_name": tool_name}
         trace_name = f"Tool({tool_name or 'unknown'})"
 
-        with span(kind="model", name=trace_name, input=trace_input, kwargs=trace_kwargs) as sp:
+        with span(kind="tool", name=trace_name, input=trace_input, kwargs=trace_kwargs) as sp:
             if not tool_name:
                 error_payload = json.dumps({"error": "Tool call missing function name."})
                 sp.error = "ToolError: Tool call missing function name."
