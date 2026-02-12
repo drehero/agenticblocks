@@ -63,7 +63,7 @@ class TestFunctionToolsOtherProviders:
         def sum_numbers(a: int, b: int) -> int:
             return a + b
 
-        model = Model("anthropic/claude-3", provider="openrouter", web_search=False, function_tools=[sum_numbers])
+        model = Model("anthropic/claude-3", provider="openrouter", web_search=False, tools=[sum_numbers])
         result = model("4+5?")
 
         assert result == "9"
@@ -98,7 +98,7 @@ class TestFunctionToolsOtherProviders:
                 "claude-3-opus",
                 provider="anthropic",
                 web_search=False,
-                function_tools=[sum_numbers],
+                tools=[sum_numbers],
             )
             result = model("2+3?")
 
@@ -179,7 +179,7 @@ class TestFunctionToolsOtherProviders:
                 "gemini-2.0-flash",
                 provider="google",
                 web_search=False,
-                function_tools=[echo_value],
+                tools=[echo_value],
             )
             result = model("call tool")
 
@@ -235,7 +235,7 @@ class TestFunctionToolsOtherProviders:
                 "grok-2",
                 provider="xai",
                 web_search=False,
-                function_tools=[double_value],
+                tools=[double_value],
             )
             result = model("double 3")
 

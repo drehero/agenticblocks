@@ -56,7 +56,7 @@ class TestOpenAIFunctionTools:
         def add_numbers(a: int, b: int) -> int:
             return a + b
 
-        model = Model("gpt-4", function_tools=[add_numbers], web_search=False)
+        model = Model("gpt-4", tools=[add_numbers], web_search=False)
         result = model("What is 2 + 3?")
 
         assert result == "The result is 5."
@@ -120,7 +120,7 @@ class TestOpenAIFunctionTools:
 
         model = Model(
             "gpt-4",
-            function_tools=[echo_number],
+            tools=[echo_number],
             keep_history=True,
             web_search=False,
         )
@@ -173,7 +173,7 @@ class TestOpenAIFunctionTools:
         def add_numbers(a: int, b: int) -> int:
             return a + b
 
-        model = Model("gpt-4", function_tools=[add_numbers], web_search=False)
+        model = Model("gpt-4", tools=[add_numbers], web_search=False)
         with trace() as t:
             out = model("Use the tool")
 
@@ -246,7 +246,7 @@ class TestOpenAIFunctionTools:
 
         model = Model(
             "gpt-4",
-            function_tools=[echo_value],
+            tools=[echo_value],
             max_tool_rounds=1,
             web_search=False,
         )

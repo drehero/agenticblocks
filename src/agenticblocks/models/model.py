@@ -40,7 +40,7 @@ class Model:
             `{PROVIDER}_API_URL`, or `OPENAI_API_URL` for OpenAI.
         api_key: API key. Defaults to `{PROVIDER}_API_KEY` or `OPENAI_API_KEY`
             for OpenAI.
-        function_tools: Optional list of Python callables or Tool objects
+        tools: Optional list of Python callables or Tool objects
             available for OpenAI function-calling.
         max_tool_rounds: Maximum number of assistant->tool exchange rounds
             before the function loop exits.
@@ -67,7 +67,7 @@ class Model:
             provider: None | Literal["openrouter", "openai", "google", "anthropic", "xai"] = None,
             api_url: str | None = None,
             api_key: str | None = None,
-            function_tools: list[Tool | Callable[..., Any]] | None = None,
+            tools: list[Tool | Callable[..., Any]] | None = None,
             max_tool_rounds: int = 8,
             cost_tracking: Literal["default", "ignore_errors"] = "default",
         ) -> None:
@@ -99,7 +99,7 @@ class Model:
 
         self.model_kwargs = model_kwargs
         self.cost_tracking = cost_tracking
-        self.function_tools = normalize_function_tools(function_tools)
+        self.tools = normalize_function_tools(tools)
         self.max_tool_rounds = max_tool_rounds
         if self.max_tool_rounds < 1:
             raise ValueError("max_tool_rounds must be >= 1.")
@@ -144,11 +144,11 @@ class Model:
             The model's response text.
         """
         trace_kwargs = dict(kwargs)
-        if self.function_tools:
-            trace_kwargs["function_tools"] = [tool.name for tool in self.function_tools]
+        if self.tools:
+            trace_kwargs["tools"] = [tool.name for tool in self.tools]
             trace_kwargs["max_tool_rounds"] = self.max_tool_rounds
         with span(kind="model", name=repr(self), input=prompt, kwargs=trace_kwargs) as sp:
-            resolved_tools = self.function_tools
+            resolved_tools = self.tools
 
             if self.keep_history:
                 self.add_message("user", prompt)
