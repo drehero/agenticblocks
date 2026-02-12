@@ -189,6 +189,58 @@ class TestOpenAIFunctionTools:
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     @patch("openai.OpenAI")
+    def test_single_string_tool_accepts_raw_string_arguments(self, mock_openai_class):
+        """Raw non-JSON tool arguments should be accepted for single-string-arg tools."""
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_client.chat.completions.create.side_effect = [
+            _mock_response(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "",
+                                "tool_calls": [
+                                    {
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "python",
+                                            "arguments": "import math\nprint(1+2)",
+                                        },
+                                    }
+                                ],
+                            }
+                        }
+                    ],
+                    "usage": {"cost": 0.01},
+                }
+            ),
+            _mock_response(
+                {
+                    "choices": [{"message": {"content": "done"}}],
+                    "usage": {"cost": 0.01},
+                }
+            ),
+        ]
+
+        from agenticblocks.models import Model
+
+        def python(code: str) -> str:
+            return f"ran:{code.splitlines()[0]}"
+
+        model = Model("gpt-4", tools=[python], web_search=False)
+        out = model("use python")
+
+        assert out == "done"
+        second_call_kwargs = mock_client.chat.completions.create.call_args_list[1].kwargs
+        tool_messages = [msg for msg in second_call_kwargs["messages"] if msg.get("role") == "tool"]
+        assert tool_messages
+        assert tool_messages[-1]["name"] == "python"
+        assert tool_messages[-1]["content"] == "ran:import math"
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("openai.OpenAI")
     def test_max_tool_rounds_can_be_set_on_init(self, mock_openai_class):
         """max_tool_rounds should be configurable at initialization."""
         mock_client = MagicMock()

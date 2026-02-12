@@ -306,15 +306,29 @@ class Model:
                 return error_payload
 
             arguments: Any = raw_arguments
+            parse_error: json.JSONDecodeError | None = None
             if isinstance(raw_arguments, str):
                 try:
                     arguments = json.loads(raw_arguments)
                 except json.JSONDecodeError as exc:
-                    error_payload = json.dumps({"error": f"Invalid JSON arguments for '{tool_name}': {exc}"})
-                    sp.error = f"JSONDecodeError: {exc}"
+                    parse_error = exc
+
+            if not isinstance(arguments, dict):
+                fallback_arguments = Model._coerce_single_string_tool_arguments(
+                    tool=tool,
+                    raw_arguments=raw_arguments,
+                    parsed_arguments=arguments,
+                )
+                if fallback_arguments is not None:
+                    arguments = fallback_arguments
+                    sp.kwargs["argument_parse"] = "single_string_fallback"
+
+            if not isinstance(arguments, dict):
+                if parse_error is not None:
+                    error_payload = json.dumps({"error": f"Invalid JSON arguments for '{tool_name}': {parse_error}"})
+                    sp.error = f"JSONDecodeError: {parse_error}"
                     sp.output = error_payload
                     return error_payload
-            if not isinstance(arguments, dict):
                 error_payload = json.dumps({"error": f"Arguments for '{tool_name}' must be a JSON object."})
                 sp.error = f"ToolError: Arguments for '{tool_name}' must be a JSON object."
                 sp.output = error_payload
@@ -338,6 +352,32 @@ class Model:
             return json.dumps(raw_arguments, ensure_ascii=False, default=str)
         except Exception:  # noqa: BLE001
             return str(raw_arguments)
+
+    @staticmethod
+    def _coerce_single_string_tool_arguments(
+        *,
+        tool: Tool,
+        raw_arguments: Any,
+        parsed_arguments: Any,
+    ) -> dict[str, Any] | None:
+        parameters = tool.parameters
+        if not isinstance(parameters, dict):
+            return None
+        properties = parameters.get("properties")
+        if not isinstance(properties, dict) or len(properties) != 1:
+            return None
+
+        param_name, param_schema = next(iter(properties.items()))
+        if not isinstance(param_schema, dict):
+            return None
+        if param_schema.get("type") != "string":
+            return None
+
+        if isinstance(parsed_arguments, str):
+            return {param_name: parsed_arguments}
+        if isinstance(raw_arguments, str):
+            return {param_name: raw_arguments}
+        return None
 
     def _resolve_base_url(self, api_url: str | None) -> str | None:
         default_base_urls = {
