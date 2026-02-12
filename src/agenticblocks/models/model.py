@@ -287,25 +287,57 @@ class Model:
         tool_name: str | None,
         raw_arguments: Any,
     ) -> str:
-        if not tool_name:
-            return json.dumps({"error": "Tool call missing function name."})
-        tool = tool_map.get(tool_name)
-        if tool is None:
-            return json.dumps({"error": f"Unknown tool '{tool_name}'."})
+        trace_input = Model._format_tool_trace_input(raw_arguments)
+        trace_kwargs = {"tool_name": tool_name}
+        trace_name = f"Tool({tool_name or 'unknown'})"
 
-        arguments: Any = raw_arguments
-        if isinstance(raw_arguments, str):
+        with span(kind="model", name=trace_name, input=trace_input, kwargs=trace_kwargs) as sp:
+            if not tool_name:
+                error_payload = json.dumps({"error": "Tool call missing function name."})
+                sp.error = "ToolError: Tool call missing function name."
+                sp.output = error_payload
+                return error_payload
+
+            tool = tool_map.get(tool_name)
+            if tool is None:
+                error_payload = json.dumps({"error": f"Unknown tool '{tool_name}'."})
+                sp.error = f"ToolError: Unknown tool '{tool_name}'."
+                sp.output = error_payload
+                return error_payload
+
+            arguments: Any = raw_arguments
+            if isinstance(raw_arguments, str):
+                try:
+                    arguments = json.loads(raw_arguments)
+                except json.JSONDecodeError as exc:
+                    error_payload = json.dumps({"error": f"Invalid JSON arguments for '{tool_name}': {exc}"})
+                    sp.error = f"JSONDecodeError: {exc}"
+                    sp.output = error_payload
+                    return error_payload
+            if not isinstance(arguments, dict):
+                error_payload = json.dumps({"error": f"Arguments for '{tool_name}' must be a JSON object."})
+                sp.error = f"ToolError: Arguments for '{tool_name}' must be a JSON object."
+                sp.output = error_payload
+                return error_payload
+
             try:
-                arguments = json.loads(raw_arguments)
-            except json.JSONDecodeError as exc:
-                return json.dumps({"error": f"Invalid JSON arguments for '{tool_name}': {exc}"})
-        if not isinstance(arguments, dict):
-            return json.dumps({"error": f"Arguments for '{tool_name}' must be a JSON object."})
+                output = tool.execute(arguments)
+                sp.output = output
+                return output
+            except Exception as exc:  # noqa: BLE001
+                error_payload = json.dumps({"error": f"Tool '{tool_name}' failed: {exc}"})
+                sp.error = f"{type(exc).__name__}: {exc}"
+                sp.output = error_payload
+                return error_payload
 
+    @staticmethod
+    def _format_tool_trace_input(raw_arguments: Any) -> str:
+        if isinstance(raw_arguments, str):
+            return raw_arguments
         try:
-            return tool.execute(arguments)
-        except Exception as exc:  # noqa: BLE001
-            return json.dumps({"error": f"Tool '{tool_name}' failed: {exc}"})
+            return json.dumps(raw_arguments, ensure_ascii=False, default=str)
+        except Exception:  # noqa: BLE001
+            return str(raw_arguments)
 
     def _resolve_base_url(self, api_url: str | None) -> str | None:
         default_base_urls = {

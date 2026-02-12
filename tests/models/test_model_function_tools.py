@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from agenticblocks.trace import trace
+
 
 def _mock_response(payload):
     response = MagicMock()
@@ -128,6 +130,61 @@ class TestOpenAIFunctionTools:
         roles = [m["role"] for m in model.messages]
         assert roles == ["user", "assistant", "tool", "assistant"]
         assert model.messages[2]["content"] == "7"
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("openai.OpenAI")
+    def test_tool_execution_records_trace_input_output(self, mock_openai_class):
+        """Tool execution should produce a child span with input args and output text."""
+        mock_client = MagicMock()
+        mock_openai_class.return_value = mock_client
+        mock_client.chat.completions.create.side_effect = [
+            _mock_response(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "",
+                                "tool_calls": [
+                                    {
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "add_numbers",
+                                            "arguments": "{\"a\": 1, \"b\": 2}",
+                                        },
+                                    }
+                                ],
+                            }
+                        }
+                    ],
+                    "usage": {"cost": 0.01},
+                }
+            ),
+            _mock_response(
+                {
+                    "choices": [{"message": {"content": "done"}}],
+                    "usage": {"cost": 0.01},
+                }
+            ),
+        ]
+
+        from agenticblocks.models import Model
+
+        def add_numbers(a: int, b: int) -> int:
+            return a + b
+
+        model = Model("gpt-4", function_tools=[add_numbers], web_search=False)
+        with trace() as t:
+            out = model("Use the tool")
+
+        assert out == "done"
+        assert len(t.root_spans) == 1
+        model_span = t.root_spans[0]
+        tool_spans = [child for child in model_span.children if child.name == "Tool(add_numbers)"]
+        assert len(tool_spans) == 1
+        tool_span = tool_spans[0]
+        assert tool_span.input == "{\"a\": 1, \"b\": 2}"
+        assert tool_span.output == "3"
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     @patch("openai.OpenAI")
